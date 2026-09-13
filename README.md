@@ -1,1 +1,0 @@
-# Proyecto-Sistema-De-videovigilancia
