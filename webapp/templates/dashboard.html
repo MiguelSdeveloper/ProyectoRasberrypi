@@ -1,0 +1,29 @@
+{% extends "base.html" %}
+{% block title %}Panel &mdash; FaceSec{% endblock %}
+{% block content %}
+<div class="grid">
+  <section class="feed-panel">
+    <h2>TRANSMISIÓN EN VIVO</h2>
+    <img src="{{ url_for('video_feed') }}" alt="transmisión en vivo">
+    <p class="status">
+      MODELO:
+      {% if model_ready %}
+        <span class="ok">ENTRENADO</span>
+      {% else %}
+        <span class="warn">SIN ENTRENAR</span>
+      {% endif %}
+    </p>
+  </section>
+
+  <section class="log-panel">
+    <h2>REGISTRO DE EVENTOS</h2>
+    <ul id="event-log">
+      {% for e in events %}
+      <li class="{{ e.level }}">[{{ e.time }}] {{ e.message }}</li>
+      {% else %}
+      <li>Sin eventos todavía.</li>
+      {% endfor %}
+    </ul>
+  </section>
+</div>
+{% endblock %}

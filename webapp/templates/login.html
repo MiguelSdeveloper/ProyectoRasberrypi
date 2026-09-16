@@ -1,0 +1,17 @@
+{% extends "base.html" %}
+{% block title %}Acceso &mdash; FaceSec{% endblock %}
+{% block content %}
+<div class="login-box">
+  <h1>AUTENTICACIÓN REQUERIDA</h1>
+  <p class="subtitle">Ingrese sus credenciales para acceder al sistema</p>
+  <form method="POST">
+    <label for="username">USUARIO</label>
+    <input type="text" id="username" name="username" autocomplete="off" required>
+
+    <label for="password">CONTRASEÑA</label>
+    <input type="password" id="password" name="password" required>
+
+    <button type="submit">INGRESAR</button>
+  </form>
+</div>
+{% endblock %}

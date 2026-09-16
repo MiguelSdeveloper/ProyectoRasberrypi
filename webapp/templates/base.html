@@ -1,0 +1,33 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>{% block title %}FaceSec{% endblock %}</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+  <header class="topbar">
+    <span class="brand">&#9679; FACESEC &mdash; SISTEMA DE RECONOCIMIENTO FACIAL</span>
+    {% if session.get('user') %}
+      <span class="session-info">
+        {{ session['user'] }} [{{ session['role']|upper }}]
+        &middot; <a href="{{ url_for('logout') }}">cerrar sesión</a>
+      </span>
+    {% endif %}
+  </header>
+
+  <main>
+    {% with messages = get_flashed_messages() %}
+      {% if messages %}
+        <div class="alert">
+          {% for m in messages %}{{ m }}{% endfor %}
+        </div>
+      {% endif %}
+    {% endwith %}
+    {% block content %}{% endblock %}
+  </main>
+
+  <footer class="footbar">FaceSec &middot; Raspberry Pi 3B+ &middot; build local</footer>
+</body>
+</html>
