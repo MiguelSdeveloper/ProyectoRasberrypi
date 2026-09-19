@@ -1,18 +1,31 @@
 """
-Entrena el modelo LBPH con las imágenes de data/dataset/
-y guarda el resultado en data/trainer.yml.
+=====================================================================
+ TRAIN_MODEL.PY -- Entrena el modelo LBPH con las fotos del dataset
+=====================================================================
+"Entrenar" aquí significa: el algoritmo LBPH mira TODAS las fotos en
+data/dataset/, aprende los patrones de textura característicos de
+cada cara (agrupados por su ID, sacado del nombre del archivo
+"user.<id>.<numero>.jpg"), y guarda ese "conocimiento" en un solo
+archivo: data/trainer.yml.
+
+Ese trainer.yml es justo lo que recognition_engine.py carga después
+para poder reconocer caras en vivo.
 
 Uso:
     python train_model.py
 """
 import os
+
 import cv2
 import numpy as np
 
 import config
+import database
 
 
 def main():
+    database.init_db()
+
     if not os.path.isdir(config.DATASET_DIR):
         print("No hay dataset. Ejecuta capture_dataset.py primero.")
         return
@@ -24,15 +37,18 @@ def main():
         if not filename.lower().endswith((".jpg", ".png")):
             continue
         try:
-            user_id = int(filename.split(".")[1])
+            # "user.3.17.jpg" -> partes = ["user", "3", "17", "jpg"] -> id = 3
+            person_id = int(filename.split(".")[1])
         except (IndexError, ValueError):
             continue
+
         path = os.path.join(config.DATASET_DIR, filename)
         img = cv2.imread(path, cv2.IMREAD_GRAYSCALE)
         if img is None:
             continue
+
         faces.append(img)
-        ids.append(user_id)
+        ids.append(person_id)
 
     if not faces:
         print("No se encontraron imágenes válidas en el dataset.")

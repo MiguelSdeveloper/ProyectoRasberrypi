@@ -2,9 +2,18 @@
 {% block title %}Panel &mdash; FaceSec{% endblock %}
 {% block content %}
 <div class="grid">
+
+  <!--
+    Este <section> es la "Cámara 1" (la de la Pi / USB). La imagen
+    en vivo sale de la ruta Flask /video_feed (definida en app.py).
+    Si quieres MOVER o REDIMENSIONAR esta cámara en la página, el
+    lugar correcto NO es este HTML -- es el archivo
+    webapp/static/style.css, en la clase ".feed-panel" y ".grid"
+    (ver los comentarios ahí).
+  -->
   <section class="feed-panel">
-    <h2>TRANSMISIÓN EN VIVO</h2>
-    <img src="{{ url_for('video_feed') }}" alt="transmisión en vivo">
+    <h2>CÁMARA 1 (Pi)</h2>
+    <img src="{{ url_for('video_feed') }}" alt="cámara principal">
     <p class="status">
       MODELO:
       {% if model_ready %}
@@ -14,6 +23,14 @@
       {% endif %}
     </p>
   </section>
+
+  {% if wifi_enabled %}
+  <!-- "Cámara 2" (WiFi). Solo aparece si CAMERA_WIFI_ENABLED = True en config.py -->
+  <section class="feed-panel">
+    <h2>CÁMARA 2 (WiFi)</h2>
+    <img src="{{ url_for('video_feed_wifi') }}" alt="cámara wifi">
+  </section>
+  {% endif %}
 
   <section class="log-panel">
     <h2>REGISTRO DE EVENTOS</h2>

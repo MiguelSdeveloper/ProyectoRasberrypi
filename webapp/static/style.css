@@ -1,3 +1,27 @@
+/* =====================================================================
+   STYLE.CSS -- Aquí están las "coordenadas" / posición de la cámara
+   =====================================================================
+   GUÍA RÁPIDA para modificar la posición y tamaño de las cámaras:
+
+   1) ".grid" controla CUÁNTAS COLUMNAS hay y qué tan anchas son.
+      Ahora mismo: "2fr 1fr" significa "la primera columna (cámaras)
+      ocupa 2 partes de ancho, la segunda (el log) ocupa 1 parte".
+      Si quieres las cámaras más angostas, prueba "1fr 1fr".
+      Si quieres 3 columnas (ej. cámara 1, cámara 2, log, cada una
+      del mismo ancho), usa: grid-template-columns: 1fr 1fr 1fr;
+
+   2) ".feed-panel img" controla el TAMAÑO de cada video individual.
+      "width: 100%" = ocupa todo el ancho de su columna. Puedes
+      poner algo como "max-width: 400px;" si quieres un tamaño fijo
+      en vez de que se estire.
+
+   3) Si quieres que las 2 cámaras queden UNA ARRIBA DE LA OTRA (en
+      vez de lado a lado), no toques el CSS -- eso ya pasa solo en
+      pantallas angostas gracias al "@media" al final de este
+      archivo. Para forzarlo siempre, cambia grid-template-columns
+      a "1fr" en la sección ".grid" principal (no en el @media).
+   ===================================================================== */
+
 :root {
   --bg: #0a0e0f;
   --panel: #10171a;
@@ -90,9 +114,11 @@ main { flex: 1; padding: 24px; }
 
 .login-box button:hover { background: var(--accent); }
 
+/* ---- AQUÍ empieza la sección relevante para mover las cámaras ---- */
+
 .grid {
   display: grid;
-  grid-template-columns: 2fr 1fr;
+  grid-template-columns: 2fr 1fr;   /* <-- ancho relativo de cada columna */
   gap: 20px;
 }
 
@@ -112,9 +138,11 @@ main { flex: 1; padding: 24px; }
 }
 
 .feed-panel img {
-  width: 100%;
+  width: 100%;          /* <-- tamaño del video dentro de su panel */
   border: 1px solid var(--accent-dim);
 }
+
+/* ---- fin de la sección relevante ---- */
 
 .status { font-size: 0.85rem; margin-top: 10px; }
 .ok { color: var(--accent); }
@@ -137,6 +165,7 @@ main { flex: 1; padding: 24px; }
   border-top: 1px solid var(--border);
 }
 
+/* En pantallas angostas (celular), apila todo en una sola columna */
 @media (max-width: 800px) {
   .grid { grid-template-columns: 1fr; }
 }

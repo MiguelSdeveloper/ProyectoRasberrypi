@@ -1,17 +1,23 @@
 """
-Muestra la cámara en vivo con reconocimiento facial en una ventana local.
-Requiere una sesión gráfica (VNC) para funcionar.
+=====================================================================
+ RECOGNIZE_LIVE.PY -- Ventana local con reconocimiento en vivo
+=====================================================================
+Útil para probar rápido en la Pi con pantalla/VNC, sin pasar por la
+parte web. Usa la cámara "principal" (la que definas en
+config.CAMERA_BACKEND).
 
 Uso:
     python recognize_live.py
 """
 import cv2
 
+import database
 from camera import CameraStream
 from recognition_engine import RecognitionEngine
 
 
 def main():
+    database.init_db()
     engine = RecognitionEngine()
     if not engine.ready:
         print("Aviso: no hay modelo entrenado todavía (ejecuta train_model.py).")
