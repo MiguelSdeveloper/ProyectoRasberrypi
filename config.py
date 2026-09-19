@@ -81,6 +81,7 @@ CASCADE_PATH = _find_cascade_path()
 CAMERA_RESOLUTION = (320, 240)   # ancho, alto -- reducido por el rendimiento de la Pi 3B+
 CAMERA_FRAMERATE = 15
 CAMERA_MIRROR = True             # True = espejo horizontal (como selfie)
+CAMERA_ROTATE_180 = True          # True = corrige un módulo montado al revés físicamente
 
 # "auto" -> usa Picamera2 si está disponible, si no cae a webcam USB
 # "picamera2" -> fuerza el módulo CSI

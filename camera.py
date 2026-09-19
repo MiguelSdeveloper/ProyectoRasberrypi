@@ -97,6 +97,8 @@ class CameraStream:
         # Todos los backends terminan entregando el frame en orden BGR:
         # cv2.VideoCapture nativamente, y Picamera2 por el quirk conocido
         # de su formato "RGB888" (a pesar del nombre, entrega BGR).
+        if config.CAMERA_ROTATE_180:
+            frame = cv2.rotate(frame, cv2.ROTATE_180)
         if config.CAMERA_MIRROR:
             frame = cv2.flip(frame, 1)
         return frame

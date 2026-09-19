@@ -11,6 +11,10 @@
     <span class="brand">&#9679; FACESEC &mdash; SISTEMA DE RECONOCIMIENTO FACIAL</span>
     {% if session.get('user') %}
       <span class="session-info">
+        {% if session.get('role') == 'admin' %}
+          <a href="{{ url_for('register') }}">registrar persona</a> &middot;
+          <a href="{{ url_for('manage_users') }}">usuarios</a> &middot;
+        {% endif %}
         {{ session['user'] }} [{{ session['role']|upper }}]
         &middot; <a href="{{ url_for('logout') }}">cerrar sesión</a>
       </span>

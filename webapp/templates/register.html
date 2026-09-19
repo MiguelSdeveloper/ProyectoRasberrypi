@@ -1,0 +1,21 @@
+{% extends "base.html" %}
+{% block title %}Registrar persona &mdash; FaceSec{% endblock %}
+{% block content %}
+<div class="login-box">
+  <h1>REGISTRAR PERSONA NUEVA</h1>
+  <p class="subtitle">Se tomarán 40 muestras de su rostro con la cámara 1</p>
+  <form method="POST">
+    <label for="name">NOMBRE</label>
+    <input type="text" id="name" name="name" required>
+
+    <label for="role">ROL</label>
+    <select id="role" name="role" style="width:100%; background:#0d1416; color:var(--text); border:1px solid var(--accent-dim); padding:8px; margin-top:4px;">
+      <option value="Admin">Admin</option>
+      <option value="Estudiante" selected>Estudiante</option>
+      <option value="Invitado">Invitado</option>
+    </select>
+
+    <button type="submit">EMPEZAR CAPTURA</button>
+  </form>
+</div>
+{% endblock %}
