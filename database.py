@@ -150,3 +150,16 @@ def list_users():
     rows = conn.execute("SELECT username, role, created_at FROM users ORDER BY created_at").fetchall()
     conn.close()
     return [dict(row) for row in rows]
+
+def delete_user(username):
+    conn = get_connection()
+    conn.execute("DELETE FROM users WHERE username = ?", (username,))
+    conn.commit()
+    conn.close()
+
+
+def delete_person(person_id):
+    conn = get_connection()
+    conn.execute("DELETE FROM people WHERE id = ?", (person_id,))
+    conn.commit()
+    conn.close()
