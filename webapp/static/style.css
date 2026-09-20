@@ -156,6 +156,13 @@ main { flex: 1; padding: 24px; }
 }
 #event-log li.warning { color: var(--warn); }
 #event-log li.success { color: var(--accent); }
+#event-log li.danger {
+  color: #ff6b52;
+  font-weight: bold;
+  background: rgba(224, 82, 47, 0.12);
+  border-left: 3px solid var(--danger);
+  padding-left: 8px;
+}
 
 .footbar {
   text-align: center;

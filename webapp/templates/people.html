@@ -1,0 +1,22 @@
+{% extends "base.html" %}
+{% block title %}Personas &mdash; FaceSec{% endblock %}
+{% block content %}
+<div class="grid">
+  <section class="log-panel">
+    <h2>PERSONAS REGISTRADAS (reconocimiento facial)</h2>
+    <ul id="event-log">
+      {% for id, p in people.items() %}
+      <li>
+        #{{ id }} &mdash; {{ p.name }} ({{ p.role }})
+        <form method="POST" action="{{ url_for('delete_person_route', person_id=id) }}" style="display:inline;">
+          <button type="submit" style="background:var(--danger); color:#fff; border:none; padding:2px 8px; cursor:pointer; margin-left:8px;">eliminar</button>
+        </form>
+      </li>
+      {% else %}
+      <li>No hay personas registradas.</li>
+      {% endfor %}
+    </ul>
+    <p style="margin-top:16px;"><a href="{{ url_for('dashboard') }}">&larr; Volver al CCTV</a></p>
+  </section>
+</div>
+{% endblock %}

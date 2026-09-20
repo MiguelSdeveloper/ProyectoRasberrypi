@@ -6,13 +6,17 @@
     <h2>CAPTURANDO A: {{ name }}</h2>
     <img src="{{ url_for('register_feed') }}" alt="captura en vivo">
     <p class="status" id="progress-text">Muestras: 0/40</p>
+    <p style="margin-top:10px;">
+      <a href="{{ url_for('dashboard') }}">&larr; Volver al CCTV</a>
+      (la captura sigue en curso en segundo plano si te vas antes de terminar)
+    </p>
     <p id="done-actions" style="display:none;">
       <span class="ok">¡Captura completa!</span><br>
       <form method="POST" action="{{ url_for('train') }}">
         <button type="submit">ENTRENAR MODELO AHORA</button>
       </form>
       <a href="{{ url_for('register') }}">Registrar otra persona</a> &middot;
-      <a href="{{ url_for('dashboard') }}">Volver al panel</a>
+      <a href="{{ url_for('dashboard') }}">Volver al panel (CCTV)</a>
     </p>
   </section>
 </div>
