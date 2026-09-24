@@ -11,7 +11,7 @@ import glob
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
 DATASET_DIR = os.path.join(BASE_DIR, "data", "dataset")
-PREVIEW_DIR = os.path.join(BASE_DIR, "data", "previews")
+PREVIEW_DIR = os.path.join(BASE_DIR, "data", "previews")  # fotos a color, solo de referencia visual
 MODEL_PATH = os.path.join(BASE_DIR, "data", "trainer.yml")
 DB_PATH = os.path.join(BASE_DIR, "data", "facesec.db")
 LABELS_PATH = os.path.join(BASE_DIR, "data", "labels.json")  # ya no se usa, solo compatibilidad
@@ -79,14 +79,15 @@ EYE_CASCADE_PATH = _find_eye_cascade_path()
 CAMERA_RESOLUTION = (320, 240)
 CAMERA_FRAMERATE = 15
 CAMERA_MIRROR = True
-CAMERA_ROTATE_180 = False
+CAMERA_ROTATE_180 = True
 
-CAMERA_BACKEND = "usb"
+CAMERA_BACKEND = "auto"
 CAMERA_USB_INDEX = 0
 CAMERA_IP_URL = ""
 
 CAMERA_WIFI_ENABLED = False
 CAMERA_WIFI_URL = ""
+
 MOTION_MIN_AREA = 1500
 
 # ---------------------------------------------------------------
@@ -94,7 +95,7 @@ MOTION_MIN_AREA = 1500
 # ---------------------------------------------------------------
 FACE_DETECTION_SCALE_FACTOR = 1.2
 FACE_DETECTION_MIN_NEIGHBORS = 6
-FACE_DETECTION_MIN_SIZE = (60, 60)
+FACE_DETECTION_MIN_SIZE = (40, 40)
 
 # ---------------------------------------------------------------
 # RECONOCIMIENTO (LBPH)
@@ -109,6 +110,9 @@ RECORDING_GRACE_FRAMES = 15
 RECORD_PEOPLE_ENABLED = True
 RECORD_GENERAL_ENABLED = True
 RECORD_ALERTS_ENABLED = True
+
+ALERT_RESUME_WINDOW_SECONDS = 60
+CAPTURE_SAMPLE_TARGET = 20
 
 # ---------------------------------------------------------------
 # WEB / AUTENTICACIÓN
