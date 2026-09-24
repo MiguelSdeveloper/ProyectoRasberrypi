@@ -1,21 +1,32 @@
 """
 =====================================================================
- WEBAPP/APP.PY -- Panel de control Flask con 2 cámaras
+ WEBAPP/APP.PY -- Panel de control Flask con grabación 24/7
 =====================================================================
-- Credenciales del panel viven en la tabla "users" de la BD, no en
-  este archivo.
-- La primera vez que corre, se crea un admin con usuario/contraseña
-  GENERADOS AL AZAR, impresos UNA VEZ en la terminal.
-- El registro de personas se puede hacer desde la web en /register.
+CAMBIOS importantes en esta versión:
+
+  - Las cámaras arrancan UNA VEZ al iniciar el programa (no cuando
+    alguien abre la página) y graban CONTINUAMENTE en segundo plano
+    (ver camera_worker.py), sin importar si hay alguien viendo el
+    panel o no -- como un CCTV real.
+
+  - Cámara 1 (principal) hace reconocimiento facial; cámara 2 (WiFi)
+    solo detecta movimiento -- roles distintos, ver camera_worker.py
+    y motion.py.
+
+  - Cuando se dispara una alerta (desconocido o movimiento), aparece
+    en el log de eventos del panel con nivel "danger".
+
+  - Entrenar el modelo usa un candado (Lock) para que nunca puedan
+    correr 2 entrenamientos al mismo tiempo.
 """
 import os
 import sys
 import time
+import glob
 import secrets
 import threading
 from functools import wraps
 
-import cv2
 from flask import Flask, Response, render_template, request, redirect, url_for, session, flash
 from werkzeug.security import check_password_hash
 
@@ -23,9 +34,8 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import config
 import database
 import train_model
-from camera import CameraStream
 from recognition_engine import RecognitionEngine
-from recorder import PersonRecorder
+from camera_worker import CameraWorker, no_signal_jpeg
 
 app = Flask(__name__)
 app.secret_key = config.FLASK_SECRET_KEY
@@ -50,47 +60,42 @@ bootstrap_admin()
 
 engine = RecognitionEngine()
 
-_pi_camera = None
-_pi_recorder = PersonRecorder(camera_source="pi")
-_pi_lock = threading.Lock()
+event_log = []
+MAX_EVENT_LOG = 40
+event_log_lock = threading.Lock()
 
-_wifi_camera = None
-_wifi_recorder = PersonRecorder(camera_source="wifi")
-_wifi_lock = threading.Lock()
 
-login_log = []
-MAX_LOGIN_LOG = 30
+def log_event(message, level="info"):
+    with event_log_lock:
+        event_log.insert(0, {
+            "time": time.strftime("%Y-%m-%d %H:%M:%S"),
+            "message": message,
+            "level": level,
+        })
+        del event_log[MAX_EVENT_LOG:]
+
+
+def on_alert(message):
+    log_event(f"⚠ ALERTA: {message}", "danger")
+
+
+pi_worker = CameraWorker("pi", mode="recognition", engine=engine, on_alert=on_alert)
+pi_worker.start()
+
+wifi_worker = None
+if config.CAMERA_WIFI_ENABLED and config.CAMERA_WIFI_URL:
+    wifi_worker = CameraWorker("wifi", mode="motion", backend="ip", url=config.CAMERA_WIFI_URL, on_alert=on_alert)
+    wifi_worker.start()
+
+NO_SIGNAL_JPEG = no_signal_jpeg(*config.CAMERA_RESOLUTION)
+
+training_lock = threading.Lock()
 
 registration_lock = threading.Lock()
 registration_state = {
     "active": False, "person_id": None, "name": None,
-    "role": None, "count": 0, "target": 40, "done": False,
+    "role": None, "count": 0, "target": config.CAPTURE_SAMPLE_TARGET, "done": False,
 }
-
-
-def get_pi_camera():
-    global _pi_camera
-    with _pi_lock:
-        if _pi_camera is None:
-            _pi_camera = CameraStream().start()
-    return _pi_camera
-
-
-def get_wifi_camera():
-    global _wifi_camera
-    with _wifi_lock:
-        if _wifi_camera is None:
-            _wifi_camera = CameraStream(backend="ip", url=config.CAMERA_WIFI_URL).start()
-    return _wifi_camera
-
-
-def log_login_event(message, level="info"):
-    login_log.insert(0, {
-        "time": time.strftime("%Y-%m-%d %H:%M:%S"),
-        "message": message,
-        "level": level,
-    })
-    del login_log[MAX_LOGIN_LOG:]
 
 
 def login_required(role=None):
@@ -109,15 +114,15 @@ def login_required(role=None):
 @app.route("/", methods=["GET", "POST"])
 def login():
     if request.method == "POST":
-        username = request.form.get("username", "")
+        username = request.form.get("username", "").strip()
         password = request.form.get("password", "")
         user = database.get_user(username)
         if user and check_password_hash(user["password_hash"], password):
             session["user"] = username
             session["role"] = user["role"]
-            log_login_event(f"Inicio de sesión: {username} ({user['role']})", "success")
+            log_event(f"Inicio de sesión: {username} ({user['role']})", "success")
             return redirect(url_for("dashboard"))
-        log_login_event(f"Intento de acceso fallido: usuario '{username}'", "warning")
+        log_event(f"Intento de acceso fallido: usuario '{username}'", "warning")
         flash("Credenciales incorrectas")
     return render_template("login.html")
 
@@ -125,7 +130,7 @@ def login():
 @app.route("/logout")
 def logout():
     if "user" in session:
-        log_login_event(f"Cierre de sesión: {session['user']}", "info")
+        log_event(f"Cierre de sesión: {session['user']}", "info")
     session.clear()
     return redirect(url_for("login"))
 
@@ -139,11 +144,40 @@ def manage_users():
         role = request.form.get("role", "viewer")
         if username and password:
             database.add_user(username, password, role)
-            log_login_event(f"Usuario de panel creado: {username} ({role})", "success")
+            log_event(f"Usuario de panel creado: {username} ({role})", "success")
             flash(f"Usuario '{username}' creado.")
         else:
             flash("Usuario y contraseña son obligatorios.")
     return render_template("users.html", users=database.list_users())
+
+
+@app.route("/users/delete/<username>", methods=["POST"])
+@login_required(role="admin")
+def delete_user_route(username):
+    if username == session.get("user"):
+        flash("No puedes eliminar tu propio usuario mientras tienes sesión iniciada.")
+        return redirect(url_for("manage_users"))
+    database.delete_user(username)
+    log_event(f"Usuario de panel eliminado: {username}", "warning")
+    flash(f"Usuario '{username}' eliminado.")
+    return redirect(url_for("manage_users"))
+
+
+@app.route("/people")
+@login_required(role="admin")
+def manage_people():
+    return render_template("people.html", people=database.get_people())
+
+
+@app.route("/people/delete/<int:person_id>", methods=["POST"])
+@login_required(role="admin")
+def delete_person_route(person_id):
+    database.delete_person(person_id)
+    for path in glob.glob(os.path.join(config.DATASET_DIR, f"user.{person_id}.*.jpg")):
+        os.remove(path)
+    log_event(f"Persona eliminada del reconocimiento: ID {person_id}", "warning")
+    flash("Persona eliminada. Recuerda entrenar el modelo de nuevo.")
+    return redirect(url_for("manage_people"))
 
 
 @app.route("/dashboard")
@@ -151,56 +185,54 @@ def manage_users():
 def dashboard():
     recognition_events = database.get_recent_events(limit=15)
     combined = []
-    for e in login_log:
-        combined.append({"time": e["time"], "message": e["message"], "level": e["level"]})
+    with event_log_lock:
+        for e in event_log:
+            combined.append(dict(e))
     for e in recognition_events:
         estado = "en curso" if not e["end_time"] else f"hasta {e['end_time']}"
+        nivel = "danger" if e["person_name"] in ("Desconocido", "Movimiento") else "success"
         combined.append({
             "time": e["start_time"],
-            "message": f"Reconocido: {e['person_name']} ({e['person_role']}) "
+            "message": f"Reconocido: {e['person_name']} ({e['person_role'] or '-'}) "
                        f"cámara={e['camera_source']} [{estado}]",
-            "level": "success",
+            "level": nivel,
         })
     combined.sort(key=lambda e: e["time"], reverse=True)
 
     return render_template(
         "dashboard.html",
         role=session.get("role"),
-        events=combined[:15],
+        events=combined[:20],
         model_ready=engine.ready,
-        wifi_enabled=config.CAMERA_WIFI_ENABLED,
+        pi_connected=pi_worker.connected,
+        wifi_connected=(wifi_worker.connected if wifi_worker is not None else False),
     )
 
 
-def gen_frames_for(camera, recorder):
+def gen_stream(worker):
     while True:
-        frame = camera.read_frame()
-        frame, results = engine.process_frame(frame)
-        recorder.update(frame, results)
-
-        ok, buffer = cv2.imencode(".jpg", frame)
-        if not ok:
+        jpeg = worker.get_display_jpeg() if worker is not None else None
+        if jpeg is None:
+            jpeg = NO_SIGNAL_JPEG
+            yield (b"--frame\r\n"
+                   b"Content-Type: image/jpeg\r\n\r\n" + jpeg + b"\r\n")
+            time.sleep(1.0)
             continue
         yield (b"--frame\r\n"
-               b"Content-Type: image/jpeg\r\n\r\n" + buffer.tobytes() + b"\r\n")
+               b"Content-Type: image/jpeg\r\n\r\n" + jpeg + b"\r\n")
+        time.sleep(1.0 / config.CAMERA_FRAMERATE)
 
 
 @app.route("/video_feed")
 @login_required()
 def video_feed():
-    cam = get_pi_camera()
-    return Response(gen_frames_for(cam, _pi_recorder),
-                     mimetype="multipart/x-mixed-replace; boundary=frame")
+    return Response(gen_stream(pi_worker), mimetype="multipart/x-mixed-replace; boundary=frame")
 
 
 @app.route("/video_feed_wifi")
 @login_required()
 def video_feed_wifi():
-    if not config.CAMERA_WIFI_ENABLED:
-        return "Cámara WiFi deshabilitada en config.py", 404
-    cam = get_wifi_camera()
-    return Response(gen_frames_for(cam, _wifi_recorder),
-                     mimetype="multipart/x-mixed-replace; boundary=frame")
+    return Response(gen_stream(wifi_worker), mimetype="multipart/x-mixed-replace; boundary=frame")
 
 
 @app.route("/register", methods=["GET", "POST"])
@@ -209,21 +241,27 @@ def register():
     if request.method == "POST":
         name = request.form.get("name", "").strip()
         role = request.form.get("role", "Invitado")
+        id_document = request.form.get("id_document", "").strip() or None
+        phone = request.form.get("phone", "").strip() or None
+        email = request.form.get("email", "").strip() or None
+        notes = request.form.get("notes", "").strip() or None
+
         if not name:
             flash("El nombre es obligatorio.")
             return redirect(url_for("register"))
 
         person_id = database.next_person_id()
-        database.add_person(person_id, name, role)
+        database.add_person(person_id, name, role, id_document, phone, email, notes)
 
         with registration_lock:
             registration_state.update({
                 "active": True, "person_id": person_id, "name": name,
-                "role": role, "count": 0, "target": 40, "done": False,
+                "role": role, "count": 0,
+                "target": config.CAPTURE_SAMPLE_TARGET, "done": False,
             })
         return redirect(url_for("register_capture"))
 
-    return render_template("register.html")
+    return render_template("register.html", sample_target=config.CAPTURE_SAMPLE_TARGET)
 
 
 @app.route("/register/capture")
@@ -233,7 +271,7 @@ def register_capture():
 
 
 def gen_register_frames():
-    cam = get_pi_camera()
+    import cv2
     os.makedirs(config.DATASET_DIR, exist_ok=True)
 
     while True:
@@ -244,7 +282,11 @@ def gen_register_frames():
             count = registration_state["count"]
             target = registration_state["target"]
 
-        frame = cam.read_frame()
+        frame = pi_worker.get_raw_frame()
+        if frame is None:
+            time.sleep(0.05)
+            continue
+
         gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
         faces = engine.detector.detectMultiScale(
             gray,
@@ -258,6 +300,11 @@ def gen_register_frames():
                 face_img = gray[y:y + h, x:x + w]
                 filename = os.path.join(config.DATASET_DIR, f"user.{person_id}.{count}.jpg")
                 cv2.imwrite(filename, face_img)
+
+                if count == 1:
+                    os.makedirs(config.PREVIEW_DIR, exist_ok=True)
+                    preview_path = os.path.join(config.PREVIEW_DIR, f"user.{person_id}.jpg")
+                    cv2.imwrite(preview_path, frame[y:y + h, x:x + w])
             cv2.rectangle(frame, (x, y), (x + w, y + h), (0, 200, 0), 2)
 
         with registration_lock:
@@ -274,6 +321,7 @@ def gen_register_frames():
             continue
         yield (b"--frame\r\n"
                b"Content-Type: image/jpeg\r\n\r\n" + buffer.tobytes() + b"\r\n")
+        time.sleep(1.0 / config.CAMERA_FRAMERATE)
 
 
 @app.route("/register_feed")
@@ -296,9 +344,16 @@ def register_status():
 @app.route("/train", methods=["POST"])
 @login_required(role="admin")
 def train():
-    train_model.main()
-    engine.reload()
-    flash("Modelo entrenado y recargado correctamente.")
+    got_lock = training_lock.acquire(blocking=False)
+    if not got_lock:
+        flash("Ya hay un entrenamiento en curso, espera a que termine.")
+        return redirect(url_for("dashboard"))
+    try:
+        train_model.main()
+        engine.reload()
+        flash("Modelo entrenado y recargado correctamente.")
+    finally:
+        training_lock.release()
     return redirect(url_for("dashboard"))
 
 
