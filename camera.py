@@ -14,12 +14,6 @@ CLASE CameraStream siempre expone los mismos 3 métodos:
     .start()       -- enciende la cámara
     .read_frame()  -- te da la imagen más reciente
     .stop()        -- apaga la cámara
-
-Esto se llama una "interfaz común". Gracias a esto, el resto del
-programa (recognition_engine.py, app.py) NUNCA necesita saber si
-está hablando con la cámara de la Pi o con la WiFi -- para ellos,
-ambas se usan exactamente igual. Es lo que nos permite tener 2
-cámaras corriendo a la vez sin duplicar código.
 """
 import cv2
 import config
@@ -28,19 +22,11 @@ try:
     from picamera2 import Picamera2
     _HAS_PICAMERA2 = True
 except ImportError:
-    # En una laptop normal no existe este módulo -- no es un error,
-    # simplemente significa "esta backend no está disponible aquí".
     _HAS_PICAMERA2 = False
 
 
 class CameraStream:
     def __init__(self, resolution=None, framerate=None, backend=None, url=None, usb_index=None):
-        """
-        Todos los parámetros son OPCIONALES: si no los pasas, se usan
-        los valores de config.py. Esto nos permite crear la cámara
-        "principal" con CameraStream() a secas, y una segunda cámara
-        WiFi con CameraStream(backend="ip", url="http://...").
-        """
         self.resolution = resolution or config.CAMERA_RESOLUTION
         self.framerate = framerate or config.CAMERA_FRAMERATE
         self._backend = backend or self._resolve_default_backend()
@@ -50,12 +36,21 @@ class CameraStream:
         if self._backend == "picamera2":
             if not _HAS_PICAMERA2:
                 raise RuntimeError("picamera2 no está instalado en este sistema.")
-            self.picam2 = Picamera2()
-            video_config = self.picam2.create_video_configuration(
-                main={"size": self.resolution, "format": "RGB888"},
-                controls={"FrameRate": self.framerate},
-            )
-            self.picam2.configure(video_config)
+            try:
+                camera_num = self._select_csi_camera_num()
+                self.picam2 = Picamera2(camera_num=camera_num)
+                video_config = self.picam2.create_video_configuration(
+                    main={"size": self.resolution, "format": "RGB888"},
+                    controls={"FrameRate": self.framerate},
+                )
+                self.picam2.configure(video_config)
+            except Exception:
+                if hasattr(self, "picam2"):
+                    try:
+                        self.picam2.close()
+                    except Exception:
+                        pass
+                raise
 
         elif self._backend == "usb":
             self.cap = cv2.VideoCapture(self._usb_index)
@@ -73,6 +68,16 @@ class CameraStream:
 
         else:
             raise ValueError(f"Backend de cámara desconocido: {self._backend!r}")
+
+    @staticmethod
+    def _select_csi_camera_num():
+        infos = Picamera2.global_camera_info()
+        if not infos:
+            raise RuntimeError("No se detectó ningún módulo de cámara.")
+        csi_indices = [i for i, cam in enumerate(infos) if "usb" not in str(cam.get("Id", "")).lower()]
+        if not csi_indices:
+            raise RuntimeError("Solo se detectaron cámaras USB/UVC, ninguna CSI (revisa el cable/conector).")
+        return csi_indices[0]
 
     @staticmethod
     def _resolve_default_backend():
@@ -94,9 +99,6 @@ class CameraStream:
             if not ok:
                 raise RuntimeError(f"No se pudo leer un frame (backend={self._backend}).")
 
-        # Todos los backends terminan entregando el frame en orden BGR:
-        # cv2.VideoCapture nativamente, y Picamera2 por el quirk conocido
-        # de su formato "RGB888" (a pesar del nombre, entrega BGR).
         if config.CAMERA_ROTATE_180:
             frame = cv2.rotate(frame, cv2.ROTATE_180)
         if config.CAMERA_MIRROR:
@@ -105,7 +107,13 @@ class CameraStream:
 
     def stop(self):
         if self._backend == "picamera2":
-            self.picam2.stop()
-            self.picam2.close()
+            try:
+                self.picam2.stop()
+            except Exception:
+                pass
+            try:
+                self.picam2.close()
+            except Exception:
+                pass
         else:
             self.cap.release()

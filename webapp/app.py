@@ -2,22 +2,6 @@
 =====================================================================
  WEBAPP/APP.PY -- Panel de control Flask con grabación 24/7
 =====================================================================
-CAMBIOS importantes en esta versión:
-
-  - Las cámaras arrancan UNA VEZ al iniciar el programa (no cuando
-    alguien abre la página) y graban CONTINUAMENTE en segundo plano
-    (ver camera_worker.py), sin importar si hay alguien viendo el
-    panel o no -- como un CCTV real.
-
-  - Cámara 1 (principal) hace reconocimiento facial; cámara 2 (WiFi)
-    solo detecta movimiento -- roles distintos, ver camera_worker.py
-    y motion.py.
-
-  - Cuando se dispara una alerta (desconocido o movimiento), aparece
-    en el log de eventos del panel con nivel "danger".
-
-  - Entrenar el modelo usa un candado (Lock) para que nunca puedan
-    correr 2 entrenamientos al mismo tiempo.
 """
 import os
 import sys
@@ -79,8 +63,14 @@ def on_alert(message):
     log_event(f"⚠ ALERTA: {message}", "danger")
 
 
-pi_worker = CameraWorker("pi", mode="recognition", engine=engine, on_alert=on_alert)
+# 3 cámaras simultáneas, cada una intentando conectar por su cuenta.
+# La que no esté físicamente disponible se queda reintentando en
+# segundo plano y se muestra como "SIN SEÑAL" -- no rompe nada.
+pi_worker = CameraWorker("pi", mode="recognition", engine=engine, backend="picamera2", on_alert=on_alert)
 pi_worker.start()
+
+usb_worker = CameraWorker("usb", mode="recognition", engine=engine, backend="usb", on_alert=on_alert)
+usb_worker.start()
 
 wifi_worker = None
 if config.CAMERA_WIFI_ENABLED and config.CAMERA_WIFI_URL:
@@ -205,6 +195,7 @@ def dashboard():
         events=combined[:20],
         model_ready=engine.ready,
         pi_connected=pi_worker.connected,
+        usb_connected=usb_worker.connected,
         wifi_connected=(wifi_worker.connected if wifi_worker is not None else False),
     )
 
@@ -227,6 +218,12 @@ def gen_stream(worker):
 @login_required()
 def video_feed():
     return Response(gen_stream(pi_worker), mimetype="multipart/x-mixed-replace; boundary=frame")
+
+
+@app.route("/video_feed_usb")
+@login_required()
+def video_feed_usb():
+    return Response(gen_stream(usb_worker), mimetype="multipart/x-mixed-replace; boundary=frame")
 
 
 @app.route("/video_feed_wifi")

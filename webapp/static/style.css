@@ -141,6 +141,28 @@ main { flex: 1; padding: 24px; }
   width: 100%;          /* <-- tamaño del video dentro de su panel */
   border: 1px solid var(--accent-dim);
 }
+.camera-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
+.camera-tile {
+  flex: 1 1 30%;
+  min-width: 140px;
+}
+
+.camera-tile img {
+  width: 100%;
+  border: 1px solid var(--accent-dim);
+  display: block;
+}
+
+.camera-label {
+  font-size: 0.75rem;
+  margin: 4px 0 0;
+  color: #9fd6bb;
+}
 
 /* ---- fin de la sección relevante ---- */
 
