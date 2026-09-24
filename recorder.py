@@ -15,64 +15,75 @@ import config
 import database
 
 
-class PersonRecorder:
-    def __init__(self, camera_source):
+class AlertRecorder:
+    """
+    Graba SOLO el fragmento donde se cumple una condición de alerta
+    (por defecto: aparece alguien "Desconocido"; en la cámara WiFi se
+    usa para "Movimiento" en su lugar -- ver trigger_label).
+
+    Espera hasta ALERT_RESUME_WINDOW_SECONDS (60s por defecto) antes
+    de cerrar el archivo de verdad. Mientras tanto queda "pausado": no
+    escribe frames vacíos ni crea un archivo nuevo. Si la condición
+    vuelve a cumplirse dentro de esa ventana, sigue en el MISMO
+    archivo -- así evitamos decenas de videítos fragmentados.
+    """
+    def __init__(self, camera_source, on_alert=None, trigger_label="Desconocido", alert_prefix="ALERTA"):
         self.camera_source = camera_source
+        self.on_alert = on_alert
+        self.trigger_label = trigger_label
+        self.alert_prefix = alert_prefix
         self.writer = None
-        self.current_person = None
-        self.current_role = None
-        self.event_id = None
+        self.start_epoch = None
+        self.missing_since = None
         self.video_path = None
-        self.missing_count = 0
-        os.makedirs(config.RECORDINGS_DIR, exist_ok=True)
+        self.event_id = None
+        self.folder = os.path.join(config.RECORDINGS_ALERTS_DIR, camera_source)
+        os.makedirs(self.folder, exist_ok=True)
 
     def update(self, frame, results):
-        known = [r for r in results if r["label"] != "Desconocido"]
-        person = known[0] if known else None
+        triggered = any(r["label"] == self.trigger_label for r in results)
 
-        if person is not None:
-            self.missing_count = 0
-            if self.current_person != person["label"]:
-                self._stop()
-                self._start(person["label"], person.get("role"), frame.shape)
-            self._write(frame)
+        if triggered:
+            self.missing_since = None
+            if self.writer is None:
+                self._start(frame.shape)
+            self.writer.write(frame)
         else:
-            if self.current_person is not None:
-                self.missing_count += 1
-                if self.missing_count > config.RECORDING_GRACE_FRAMES:
+            if self.writer is not None:
+                if self.missing_since is None:
+                    self.missing_since = time.time()
+                elapsed = time.time() - self.missing_since
+                if elapsed > config.ALERT_RESUME_WINDOW_SECONDS:
                     self._stop()
 
-    def _start(self, person_name, person_role, frame_shape):
+    def _start(self, frame_shape):
         height, width = frame_shape[0], frame_shape[1]
-        timestamp = time.strftime("%Y%m%d_%H%M%S")
-        safe_name = person_name.replace(" ", "_")
-        filename = f"{safe_name}_{self.camera_source}_{timestamp}.avi"
-        self.video_path = os.path.join(config.RECORDINGS_DIR, filename)
+        self.start_epoch = time.time()
+        start_str = time.strftime("%Y-%m-%d_%H-%M-%S", time.localtime(self.start_epoch))
 
+        self.video_path = os.path.join(self.folder, f"{self.alert_prefix}_{start_str}_en-curso.avi")
         fourcc = cv2.VideoWriter_fourcc(*"XVID")
-        self.writer = cv2.VideoWriter(
-            self.video_path, fourcc, config.CAMERA_FRAMERATE, (width, height)
-        )
+        self.writer = cv2.VideoWriter(self.video_path, fourcc, config.CAMERA_FRAMERATE, (width, height))
 
-        self.current_person = person_name
-        self.current_role = person_role
-        self.event_id = database.log_recognition_start(
-            None, person_name, person_role, self.camera_source
-        )
-        print(f"[{self.camera_source}] Empezó grabación: {person_name} -> {self.video_path}")
+        self.event_id = database.log_recognition_start(None, self.trigger_label, None, self.camera_source)
 
-    def _write(self, frame):
-        if self.writer is not None:
-            self.writer.write(frame)
+        if self.on_alert:
+            fecha_hora = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(self.start_epoch))
+            descripcion = "Persona NO reconocida" if self.trigger_label == "Desconocido" else self.trigger_label
+            self.on_alert(f"{descripcion} detectado (cámara {self.camera_source}) - {fecha_hora}")
 
     def _stop(self):
-        if self.writer is not None:
-            self.writer.release()
-            database.log_recognition_end(self.event_id, self.video_path)
-            print(f"[{self.camera_source}] Terminó grabación: {self.current_person}")
+        self.writer.release()
+
+        start_str = time.strftime("%Y-%m-%d_%H-%M-%S", time.localtime(self.start_epoch))
+        end_str = time.strftime("%H-%M-%S")
+        final_path = os.path.join(self.folder, f"{self.alert_prefix}_{start_str}_hasta_{end_str}.avi")
+        os.rename(self.video_path, final_path)
+
+        database.log_recognition_end(self.event_id, final_path)
+
         self.writer = None
-        self.current_person = None
-        self.current_role = None
-        self.event_id = None
+        self.start_epoch = None
         self.video_path = None
-        self.missing_count = 0
+        self.event_id = None
+        self.missing_since = None
