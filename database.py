@@ -23,6 +23,16 @@ import time
 import config
 
 
+# Columnas que se agregaron después a la tabla "people".
+# Sirven para migrar automáticamente una base de datos vieja (con 3 columnas).
+PEOPLE_EXTRA_COLUMNS = {
+    "id_document": "TEXT",
+    "phone": "TEXT",
+    "email": "TEXT",
+    "notes": "TEXT",
+}
+
+
 def get_connection():
     conn = sqlite3.connect(config.DB_PATH)
     conn.row_factory = sqlite3.Row
@@ -33,11 +43,22 @@ def init_db():
     conn = get_connection()
     conn.execute("""
         CREATE TABLE IF NOT EXISTS people (
-            id   INTEGER PRIMARY KEY,
-            name TEXT NOT NULL,
-            role TEXT NOT NULL DEFAULT 'Invitado'
+            id           INTEGER PRIMARY KEY,
+            name         TEXT NOT NULL,
+            role         TEXT NOT NULL DEFAULT 'Invitado',
+            id_document  TEXT,
+            phone        TEXT,
+            email        TEXT,
+            notes        TEXT
         )
     """)
+
+    # Migración: si la tabla ya existía con solo 3 columnas, agrega las que falten
+    existing = {row["name"] for row in conn.execute("PRAGMA table_info(people)")}
+    for col, col_type in PEOPLE_EXTRA_COLUMNS.items():
+        if col not in existing:
+            conn.execute(f"ALTER TABLE people ADD COLUMN {col} {col_type}")
+
     conn.execute("""
         CREATE TABLE IF NOT EXISTS recognition_events (
             id             INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -62,11 +83,13 @@ def init_db():
     conn.close()
 
 
-def add_person(person_id, name, role):
+def add_person(person_id, name, role, id_document="", phone="", email="", notes=""):
     conn = get_connection()
     conn.execute(
-        "INSERT OR REPLACE INTO people (id, name, role) VALUES (?, ?, ?)",
-        (person_id, name, role),
+        """INSERT OR REPLACE INTO people
+           (id, name, role, id_document, phone, email, notes)
+           VALUES (?, ?, ?, ?, ?, ?, ?)""",
+        (person_id, name, role, id_document, phone, email, notes),
     )
     conn.commit()
     conn.close()
@@ -76,7 +99,17 @@ def get_people():
     conn = get_connection()
     rows = conn.execute("SELECT * FROM people").fetchall()
     conn.close()
-    return {row["id"]: {"name": row["name"], "role": row["role"]} for row in rows}
+    return {
+        row["id"]: {
+            "name": row["name"],
+            "role": row["role"],
+            "id_document": row["id_document"],
+            "phone": row["phone"],
+            "email": row["email"],
+            "notes": row["notes"],
+        }
+        for row in rows
+    }
 
 
 def next_person_id():
@@ -150,6 +183,7 @@ def list_users():
     rows = conn.execute("SELECT username, role, created_at FROM users ORDER BY created_at").fetchall()
     conn.close()
     return [dict(row) for row in rows]
+
 
 def delete_user(username):
     conn = get_connection()
