@@ -11,11 +11,23 @@ Python sabe leer/escribir de forma estructurada, como si fuera un
 Excel con "reglas". Por eso es ideal para un proyecto como este:
 cero configuración, cero instalación extra.
 
-Tenemos 3 TABLAS (como 3 hojas de un Excel):
+Tenemos 2 TABLAS (como 2 hojas de un Excel):
 
-  people                  -> personas que la CÁMARA reconoce
-  recognition_events       -> historial de cada vez que se reconoció a alguien
-  users                     -> quién puede ENTRAR AL PANEL WEB (login)
+  people
+  ------
+  id   | name         | role
+  1    | Miguel       | Admin
+  2    | Compañero A  | Estudiante
+
+  recognition_events
+  -------------------
+  id | person_id | person_name | camera_source | start_time | end_time | video_path
+  1  | 1         | Miguel      | pi            | 14:03:01   | 14:03:22 | data/recordings/...
+
+Cada función de este archivo hace UNA sola cosa (abrir conexión,
+guardar una persona, registrar un evento, etc.) -- eso se llama
+"separación de responsabilidades" y hace el código más fácil de leer
+y de arreglar cuando algo falla.
 """
 import sqlite3
 import time
@@ -34,7 +46,20 @@ PEOPLE_EXTRA_COLUMNS = {
 
 
 def get_connection():
-    conn = sqlite3.connect(config.DB_PATH)
+    """
+    Abre una conexión a la base de datos. 'row_factory = sqlite3.Row'
+    hace que podamos leer los resultados como diccionarios
+    (fila["name"]) en vez de solo por posición (fila[1]), que es
+    mucho más legible.
+
+    'busy_timeout' es importante aquí: como Flask + cada CameraWorker
+    (uno por cámara) escriben a la BD desde hilos distintos, SQLite
+    puede rechazar una escritura con "database is locked" si dos
+    llegan al mismo tiempo. Con busy_timeout, en vez de fallar de
+    inmediato, espera hasta 3 segundos a que la otra termine.
+    """
+    conn = sqlite3.connect(config.DB_PATH, timeout=3.0)
+    conn.execute("PRAGMA busy_timeout = 3000")
     conn.row_factory = sqlite3.Row
     return conn
 

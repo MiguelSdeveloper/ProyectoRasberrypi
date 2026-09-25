@@ -2,23 +2,16 @@
 =====================================================================
  RECORDER.PY -- 3 tipos de grabación, cada uno con su propósito
 =====================================================================
-
-  1) PersonRecorder    -> clip corto SOLO mientras ve a alguien
-                           CONOCIDO. Carpeta: data/recordings/people/
-
-  2) ContinuousRecorder -> graba TODO el tiempo, sin importar nada,
-                           en bloques de N minutos. Es tu respaldo
-                           tipo CCTV tradicional.
-                           Carpeta: data/recordings/general/
-
-  3) AlertRecorder      -> clip corto SOLO del fragmento donde
-                           aparece alguien NO reconocido, con
-                           nombre de archivo con fecha y rango de
-                           horas real, y dispara una alerta. Si el
-                           desconocido/movimiento desaparece y
-                           reaparece dentro de ALERT_RESUME_WINDOW_SECONDS,
-                           sigue en el MISMO archivo (no se fragmenta).
-                           Carpeta: data/recordings/alerts/
+  1) PersonRecorder    -> UN solo archivo de video por cámara
+                           (eficiente), pero registra en la base de
+                           datos un evento INDEPENDIENTE por cada
+                           persona conocida que aparece -- así
+                           "Miguel + Juan" en el mismo frame generan
+                           2 eventos distintos, no se pisan entre sí.
+  2) ContinuousRecorder -> graba TODO el tiempo, en bloques de N minutos.
+  3) AlertRecorder      -> clip de "Desconocido" (cámara con
+                           reconocimiento) o "Movimiento" (cámara sin
+                           reconocimiento), con pausa/reanudación.
 """
 import os
 import time
@@ -30,64 +23,77 @@ import database
 
 
 # ---------------------------------------------------------------
-# 1) Grabación por persona conocida
+# 1) Grabación por persona(s) conocida(s) -- soporta varias a la vez
 # ---------------------------------------------------------------
 class PersonRecorder:
     def __init__(self, camera_source):
         self.camera_source = camera_source
         self.writer = None
-        self.current_person = None
-        self.current_role = None
-        self.event_id = None
         self.video_path = None
-        self.missing_count = 0
+        # person_id -> {"event_id", "name", "role", "missing_since"}
+        self.active_people = {}
         self.folder = os.path.join(config.RECORDINGS_PEOPLE_DIR, camera_source)
         os.makedirs(self.folder, exist_ok=True)
 
     def update(self, frame, results):
-        known = [r for r in results if r["label"] != "Desconocido"]
-        person = known[0] if known else None
+        known = [
+            r for r in results
+            if r["label"] != "Desconocido" and r.get("person_id") is not None
+        ]
+        present_ids = set()
 
-        if person is not None:
-            self.missing_count = 0
-            if self.current_person != person["label"]:
-                self._stop()
-                self._start(person["label"], person.get("role"), person.get("person_id"), frame.shape)
-            self._write(frame)
-        else:
-            if self.current_person is not None:
-                self.missing_count += 1
-                if self.missing_count > config.RECORDING_GRACE_FRAMES:
-                    self._stop()
+        # Abrir/actualizar un evento POR CADA persona conocida presente
+        for r in known:
+            pid = r["person_id"]
+            present_ids.add(pid)
+            if pid not in self.active_people:
+                if self.writer is None:
+                    self._start_writer(frame.shape)
+                event_id = database.log_recognition_start(pid, r["label"], r["role"], self.camera_source)
+                self.active_people[pid] = {
+                    "event_id": event_id, "name": r["label"],
+                    "role": r["role"], "missing_since": None,
+                }
+            else:
+                self.active_people[pid]["missing_since"] = None
 
-    def _start(self, person_name, person_role, person_id, frame_shape):
+        # Cerrar (con margen de tolerancia) a quienes ya no aparecen
+        for pid in list(self.active_people.keys()):
+            if pid in present_ids:
+                continue
+            info = self.active_people[pid]
+            if info["missing_since"] is None:
+                info["missing_since"] = time.time()
+            elif time.time() - info["missing_since"] > config.PERSON_GRACE_SECONDS:
+                database.log_recognition_end(info["event_id"], self.video_path or "")
+                del self.active_people[pid]
+
+        # Un solo archivo mientras haya AL MENOS una persona conocida
+        # (conocida en este frame, o todavía dentro del margen de
+        # tolerancia de alguna que se acaba de ir).
+        if known or self.active_people:
+            if self.writer is not None:
+                self.writer.write(frame)
+        elif self.writer is not None:
+            self._stop_writer()
+
+    def _start_writer(self, frame_shape):
         height, width = frame_shape[0], frame_shape[1]
         timestamp = time.strftime("%Y%m%d_%H%M%S")
-        safe_name = person_name.replace(" ", "_")
-        filename = f"{safe_name}_{timestamp}.avi"
-        self.video_path = os.path.join(self.folder, filename)
-
+        self.video_path = os.path.join(self.folder, f"{timestamp}.avi")
         fourcc = cv2.VideoWriter_fourcc(*"XVID")
         self.writer = cv2.VideoWriter(self.video_path, fourcc, config.CAMERA_FRAMERATE, (width, height))
 
-        self.current_person = person_name
-        self.current_role = person_role
-        self.event_id = database.log_recognition_start(person_id, person_name, person_role, self.camera_source)
-
-    def _write(self, frame):
-        if self.writer is not None:
-            self.writer.write(frame)
-
-    def _stop(self):
+    def _stop_writer(self):
         if self.writer is not None:
             self.writer.release()
-            database.log_recognition_end(self.event_id, self.video_path)
+        # Cierra cualquier evento que haya quedado abierto (por si el
+        # programa se detiene con gente todavía en cámara).
+        for info in self.active_people.values():
+            database.log_recognition_end(info["event_id"], self.video_path or "")
+        self.active_people = {}
         self.writer = None
-        self.current_person = None
-        self.current_role = None
-        self.event_id = None
         self.video_path = None
-        self.missing_count = 0
 
 
 # ---------------------------------------------------------------
@@ -132,20 +138,10 @@ class ContinuousRecorder:
 
 
 # ---------------------------------------------------------------
-# 3) Grabación de alertas (solo el fragmento con un desconocido/movimiento)
+# 3) Grabación de alertas (desconocido, o movimiento en cámaras sin
+#    reconocimiento facial)
 # ---------------------------------------------------------------
 class AlertRecorder:
-    """
-    Graba SOLO el fragmento donde se cumple una condición de alerta
-    (por defecto: aparece alguien "Desconocido"; en la cámara WiFi se
-    usa para "Movimiento" en su lugar -- ver trigger_label).
-
-    Espera hasta ALERT_RESUME_WINDOW_SECONDS (60s por defecto) antes
-    de cerrar el archivo de verdad. Mientras tanto queda "pausado": no
-    escribe frames vacíos ni crea un archivo nuevo. Si la condición
-    vuelve a cumplirse dentro de esa ventana, sigue en el MISMO
-    archivo -- así evitamos decenas de videítos fragmentados.
-    """
     def __init__(self, camera_source, on_alert=None, trigger_label="Desconocido", alert_prefix="ALERTA"):
         self.camera_source = camera_source
         self.on_alert = on_alert

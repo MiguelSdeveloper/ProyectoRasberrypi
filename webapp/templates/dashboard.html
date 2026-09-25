@@ -7,23 +7,23 @@
     <h2>CÁMARAS</h2>
     <div class="camera-grid">
       <div class="camera-tile">
-        <img src="{{ url_for('video_feed') }}" alt="cámara Pi">
+        <img src="{{ url_for('video_feed_usb') }}" alt="cámara USB">
         <p class="camera-label">
-          CÁMARA 1 (Pi) &middot;
-          {% if pi_connected %}<span class="ok">EN LÍNEA</span>{% else %}<span class="warn">SIN SEÑAL</span>{% endif %}
+          CÁMARA USB (principal) &middot;
+          {% if usb_connected %}<span class="ok">EN LÍNEA</span>{% else %}<span class="warn">SIN SEÑAL</span>{% endif %}
         </p>
       </div>
       <div class="camera-tile">
-        <img src="{{ url_for('video_feed_usb') }}" alt="cámara USB">
+        <img src="{{ url_for('video_feed') }}" alt="cámara Pi">
         <p class="camera-label">
-          CÁMARA 2 (USB) &middot;
-          {% if usb_connected %}<span class="ok">EN LÍNEA</span>{% else %}<span class="warn">SIN SEÑAL</span>{% endif %}
+          CÁMARA PI (secundaria) &middot;
+          {% if pi_connected %}<span class="ok">EN LÍNEA</span>{% else %}<span class="warn">SIN SEÑAL</span>{% endif %}
         </p>
       </div>
       <div class="camera-tile">
         <img src="{{ url_for('video_feed_wifi') }}" alt="cámara WiFi">
         <p class="camera-label">
-          CÁMARA 3 (WiFi) &middot;
+          CÁMARA WIFI &middot;
           {% if wifi_connected %}<span class="ok">EN LÍNEA</span>{% else %}<span class="warn">SIN SEÑAL</span>{% endif %}
         </p>
       </div>

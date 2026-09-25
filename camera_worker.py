@@ -2,22 +2,12 @@
 =====================================================================
  CAMERA_WORKER.PY -- Cámara grabando SIEMPRE, con 2 modos posibles
 =====================================================================
-Cada CameraWorker corre en su propio hilo de segundo plano, lee
-frames sin parar, y los procesa según su "modo":
+mode="recognition" -> detecta y RECONOCE caras (LBPH).
+mode="motion"       -> solo detecta MOVIMIENTO, sin identidad.
 
-  mode="recognition" -> detecta y RECONOCE caras (LBPH). Lo usa la
-                         cámara principal (Pi/USB).
-  mode="motion"       -> solo detecta MOVIMIENTO, sin intentar saber
-                         quién es. Lo usa la cámara WiFi -- así no
-                         corremos reconocimiento facial en 2 cámaras
-                         a la vez (muy pesado para una Pi 3B+), y
-                         cada cámara cumple un rol distinto.
-
-RECONEXIÓN AUTOMÁTICA: si la cámara no está disponible al arrancar
-(por ejemplo la WiFi está apagada o mal configurada), el worker NO
-detiene el programa -- se queda reintentando conectar cada 5
-segundos en segundo plano, y expone self.connected para que la web
-pueda mostrar "SIN SEÑAL" mientras tanto.
+RECONEXIÓN AUTOMÁTICA: si la cámara no está disponible, el worker no
+detiene el programa -- reintenta cada 5s y expone self.connected
+para que la web muestre "SIN SEÑAL".
 """
 import threading
 import time
@@ -32,13 +22,15 @@ from recorder import PersonRecorder, ContinuousRecorder, AlertRecorder
 
 class CameraWorker(threading.Thread):
     def __init__(self, camera_source, mode="recognition", engine=None,
-                 backend=None, url=None, on_alert=None):
+                 backend=None, url=None, rotate_180=False, mirror=False, on_alert=None):
         super().__init__(daemon=True)
         self.camera_source = camera_source
         self.mode = mode
         self.engine = engine
         self._backend = backend
         self._url = url
+        self._rotate_180 = rotate_180
+        self._mirror = mirror
 
         self.camera = None
         self.connected = False
@@ -75,7 +67,10 @@ class CameraWorker(threading.Thread):
         while self._running:
             if self.camera is None:
                 try:
-                    self.camera = CameraStream(backend=self._backend, url=self._url)
+                    self.camera = CameraStream(
+                        backend=self._backend, url=self._url,
+                        rotate_180=self._rotate_180, mirror=self._mirror,
+                    )
                     self.camera.start()
                     self.connected = True
                     print(f"[{self.camera_source}] Cámara conectada.")
@@ -126,6 +121,8 @@ class CameraWorker(threading.Thread):
         return buffer.tobytes() if ok else None
 
     def get_raw_frame(self):
+        if not self.connected:
+            return None
         with self._lock:
             frame = self._latest_raw_frame
         return frame.copy() if frame is not None else None
@@ -138,8 +135,6 @@ class CameraWorker(threading.Thread):
 
 
 def no_signal_jpeg(width=320, height=240):
-    """Genera una imagen 'SIN SEÑAL' para mostrar cuando una cámara
-    no está conectada (o no existe/está deshabilitada)."""
     img = np.zeros((height, width, 3), dtype="uint8")
     cv2.putText(img, "SIN SENAL", (int(width * 0.12), height // 2),
                 cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 0, 200), 2)

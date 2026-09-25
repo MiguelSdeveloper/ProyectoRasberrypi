@@ -2,8 +2,6 @@
 =====================================================================
  CONFIG.PY -- Configuración central de FaceSec
 =====================================================================
-Toda la configuración del sistema vive aquí. Cambia valores AQUÍ,
-no en los demás archivos.
 """
 import os
 import glob
@@ -11,17 +9,13 @@ import glob
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
 DATASET_DIR = os.path.join(BASE_DIR, "data", "dataset")
-PREVIEW_DIR = os.path.join(BASE_DIR, "data", "previews")  # fotos a color, solo de referencia visual
+PREVIEW_DIR = os.path.join(BASE_DIR, "data", "previews")
 MODEL_PATH = os.path.join(BASE_DIR, "data", "trainer.yml")
 DB_PATH = os.path.join(BASE_DIR, "data", "facesec.db")
-LABELS_PATH = os.path.join(BASE_DIR, "data", "labels.json")  # ya no se usa, solo compatibilidad
 
-# ---------------------------------------------------------------
-# GRABACIÓN -- 3 carpetas separadas, con 3 propósitos distintos:
-# ---------------------------------------------------------------
 RECORDINGS_PEOPLE_DIR = os.path.join(BASE_DIR, "data", "recordings", "people")
 RECORDINGS_GENERAL_DIR = os.path.join(BASE_DIR, "data", "recordings", "general")
-GENERAL_SEGMENT_SECONDS = 600  # 10 minutos por archivo
+GENERAL_SEGMENT_SECONDS = 600
 RECORDINGS_ALERTS_DIR = os.path.join(BASE_DIR, "data", "recordings", "alerts")
 
 
@@ -36,12 +30,11 @@ def _find_cascade_path():
             return candidate
     except AttributeError:
         pass
-    known_paths = [
+    for path in [
         "/usr/share/opencv4/haarcascades/haarcascade_frontalface_default.xml",
         "/usr/share/opencv/haarcascades/haarcascade_frontalface_default.xml",
         "/usr/local/share/opencv4/haarcascades/haarcascade_frontalface_default.xml",
-    ]
-    for path in known_paths:
+    ]:
         if os.path.exists(path):
             return path
     matches = glob.glob("/usr/**/haarcascade_frontalface_default.xml", recursive=True)
@@ -74,19 +67,34 @@ CASCADE_PATH = _find_cascade_path()
 EYE_CASCADE_PATH = _find_eye_cascade_path()
 
 # ---------------------------------------------------------------
-# CÁMARA PRINCIPAL
+# CÁMARAS -- cada una con SU PROPIA orientación (esto es clave: antes
+# había una sola variable global CAMERA_ROTATE_180 que afectaba a
+# todas las cámaras por igual; ahora cada cámara tiene la suya).
 # ---------------------------------------------------------------
 CAMERA_RESOLUTION = (320, 240)
 CAMERA_FRAMERATE = 15
-CAMERA_MIRROR = True
-CAMERA_ROTATE_180 = True
 
-CAMERA_BACKEND = "auto"
+# --- Cámara USB (PRINCIPAL: reconocimiento facial + registro) ---
 CAMERA_USB_INDEX = 0
-CAMERA_IP_URL = ""
+CAMERA_USB_ROTATE_180 = False
+CAMERA_USB_MIRROR = False
 
+# --- Cámara Pi/CSI (SECUNDARIA por defecto) ---
+# Está atornillada al revés físicamente, por eso necesita 180°.
+CAMERA_PI_ROTATE_180 = True
+CAMERA_PI_MIRROR = False
+# "motion"      -> (por defecto) solo detecta movimiento, liviano, no
+#                   compite por CPU con el reconocimiento de la USB.
+# "recognition" -> hace reconocimiento facial también en esta cámara
+#                   (más carga para la Pi 3B+ -- actívalo solo si
+#                   sabes que tu Pi lo soporta bien).
+CAMERA_PI_MODE = "motion"
+
+# --- Cámara WiFi (desactivada por ahora, no está conectada) ---
 CAMERA_WIFI_ENABLED = False
 CAMERA_WIFI_URL = ""
+CAMERA_WIFI_ROTATE_180 = False
+CAMERA_WIFI_MIRROR = False
 
 MOTION_MIN_AREA = 1500
 
@@ -102,17 +110,21 @@ FACE_DETECTION_MIN_SIZE = (40, 40)
 # ---------------------------------------------------------------
 RECOGNITION_CONFIDENCE_THRESHOLD = 65
 
+# Imprime en la terminal el detalle de cada predicción (ID, distancia,
+# umbral, resultado). Útil para calibrar RECOGNITION_CONFIDENCE_THRESHOLD.
+RECOGNITION_DEBUG = True
+
 # ---------------------------------------------------------------
 # GRABACIÓN AUTOMÁTICA
 # ---------------------------------------------------------------
-RECORDING_GRACE_FRAMES = 15
+PERSON_GRACE_SECONDS = 2       # margen de tolerancia por persona conocida
+ALERT_RESUME_WINDOW_SECONDS = 60
+CAPTURE_SAMPLE_TARGET = 20
+CAPTURE_MIN_INTERVAL = 0.35    # segundos mínimos entre muestras (evita fotos casi idénticas)
 
 RECORD_PEOPLE_ENABLED = True
 RECORD_GENERAL_ENABLED = True
 RECORD_ALERTS_ENABLED = True
-
-ALERT_RESUME_WINDOW_SECONDS = 60
-CAPTURE_SAMPLE_TARGET = 20
 
 # ---------------------------------------------------------------
 # WEB / AUTENTICACIÓN

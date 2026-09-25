@@ -2,18 +2,11 @@
 =====================================================================
  CAMERA.PY -- Envoltorio de cámara con 3 "backends" posibles
 =====================================================================
-Un "backend" es simplemente DE DÓNDE vienen los frames de video.
-Soportamos 3:
-
-  "picamera2" -> el módulo de cámara oficial conectado por cable CSI
-  "usb"       -> cualquier webcam USB normal
-  "ip"        -> una cámara WiFi que transmite un stream por red
-
-Lo importante para entender: sin importar cuál backend uses, la
-CLASE CameraStream siempre expone los mismos 3 métodos:
-    .start()       -- enciende la cámara
-    .read_frame()  -- te da la imagen más reciente
-    .stop()        -- apaga la cámara
+IMPORTANTE: rotate_180 y mirror ahora son PARÁMETROS del constructor,
+no configuración global. Cada CameraWorker decide la orientación
+correcta para SU cámara (ver camera_worker.py / config.py), así la
+rotación de la Pi (180°) nunca afecta a la cámara USB (0°) ni
+viceversa.
 """
 import cv2
 import config
@@ -26,12 +19,15 @@ except ImportError:
 
 
 class CameraStream:
-    def __init__(self, resolution=None, framerate=None, backend=None, url=None, usb_index=None):
+    def __init__(self, resolution=None, framerate=None, backend=None, url=None,
+                 usb_index=None, rotate_180=False, mirror=False):
         self.resolution = resolution or config.CAMERA_RESOLUTION
         self.framerate = framerate or config.CAMERA_FRAMERATE
         self._backend = backend or self._resolve_default_backend()
-        self._url = url or config.CAMERA_IP_URL
+        self._url = url or config.CAMERA_WIFI_URL
         self._usb_index = usb_index if usb_index is not None else config.CAMERA_USB_INDEX
+        self.rotate_180 = rotate_180
+        self.mirror = mirror
 
         if self._backend == "picamera2":
             if not _HAS_PICAMERA2:
@@ -81,10 +77,7 @@ class CameraStream:
 
     @staticmethod
     def _resolve_default_backend():
-        choice = config.CAMERA_BACKEND
-        if choice == "auto":
-            return "picamera2" if _HAS_PICAMERA2 else "usb"
-        return choice
+        return "usb" if not _HAS_PICAMERA2 else "picamera2"
 
     def start(self):
         if self._backend == "picamera2":
@@ -99,9 +92,10 @@ class CameraStream:
             if not ok:
                 raise RuntimeError(f"No se pudo leer un frame (backend={self._backend}).")
 
-        if config.CAMERA_ROTATE_180:
+        # Orientación específica de ESTA cámara, no una regla global.
+        if self.rotate_180:
             frame = cv2.rotate(frame, cv2.ROTATE_180)
-        if config.CAMERA_MIRROR:
+        if self.mirror:
             frame = cv2.flip(frame, 1)
         return frame
 

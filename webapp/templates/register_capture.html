@@ -3,15 +3,15 @@
 {% block content %}
 <div class="grid">
   <section class="feed-panel">
-    <h2>CAPTURANDO A: {{ name }}</h2>
-    <img src="{{ url_for('register_feed') }}" alt="captura en vivo">
+    <h2>CÁMARA USB &mdash; CAPTURA DE REGISTRO: {{ name }}</h2>
+    <img src="{{ url_for('register_feed') }}" alt="captura en vivo (cámara USB)">
     <p class="status" id="progress-text">Muestras: 0/40</p>
     <p style="margin-top:10px;">
       <a href="{{ url_for('dashboard') }}">&larr; Volver al CCTV</a>
       (la captura sigue en curso en segundo plano si te vas antes de terminar)
     </p>
     <p id="done-actions" style="display:none;">
-      <span class="ok">¡Captura completa!</span><br>
+      <span class="ok">¡Captura completa! Persona guardada en la base de datos.</span><br>
       <form method="POST" action="{{ url_for('train') }}">
         <button type="submit">ENTRENAR MODELO AHORA</button>
       </form>
@@ -26,7 +26,9 @@
     const res = await fetch("{{ url_for('register_status') }}");
     const data = await res.json();
     document.getElementById("progress-text").textContent =
-      `Muestras: ${data.count}/${data.target}`;
+      data.usb_connected
+        ? `Muestras: ${data.count}/${data.target}`
+        : "SIN SEÑAL en la cámara USB -- reconéctala para continuar";
     if (data.done) {
       document.getElementById("done-actions").style.display = "block";
       clearInterval(poll);
