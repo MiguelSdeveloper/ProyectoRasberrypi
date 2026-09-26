@@ -80,57 +80,62 @@
       document.getElementById("status-model").innerHTML = modelLabels[data.model.status] || data.model.status;
     } catch (e) { /* red caída momentáneamente, se reintenta solo */ }
   }
-  refreshStatus();
+    refreshStatus();
   setInterval(refreshStatus, 2000);
 
-  {% if role == "admin" %}
-  // ---- Panel "PERSONA DETECTADA" (solo admin) ----
-  let currentPersonId = null;
+  // isAdmin es una sola variable JS (no un bloque {% if %}/{% endif %}
+  // envolviendo JavaScript) -- así el editor no confunde las etiquetas
+  // de Jinja con sintaxis de JS rota, y el "if" de verdad lo hace JS.
+  const isAdmin = {{ "true" if role == "admin" else "false" }};
 
-  async function refreshDetected() {
-    try {
-      const res = await fetch("{{ url_for('api_current_person') }}");
-      const data = await res.json();
-      const panel = document.getElementById("detected-panel");
-      if (data.person) {
-        currentPersonId = data.person.id;
-        document.getElementById("detected-name").textContent = data.person.name;
-        document.getElementById("detected-role").textContent =
-          `${data.person.role} — cámara ${data.person.camera}`;
-        panel.style.display = "block";
-      } else {
-        currentPersonId = null;
-        panel.style.display = "none";
-      }
-    } catch (e) { /* ignora fallos puntuales */ }
+  if (isAdmin) {
+    // ---- Panel "PERSONA DETECTADA" (solo admin) ----
+    let currentPersonId = null;
+
+    const refreshDetected = async () => {
+      try {
+        const res = await fetch("{{ url_for('api_current_person') }}");
+        const data = await res.json();
+        const panel = document.getElementById("detected-panel");
+        if (data.person) {
+          currentPersonId = data.person.id;
+          document.getElementById("detected-name").textContent = data.person.name;
+          document.getElementById("detected-role").textContent =
+            `${data.person.role} — cámara ${data.person.camera}`;
+          panel.style.display = "block";
+        } else {
+          currentPersonId = null;
+          panel.style.display = "none";
+        }
+      } catch (e) { /* ignora fallos puntuales */ }
+    };
+    refreshDetected();
+    setInterval(refreshDetected, 2000);
+
+    document.getElementById("detected-btn").addEventListener("click", async () => {
+      if (currentPersonId === null) return;
+      const res = await fetch(`/api/person/${currentPersonId}`);
+      if (!res.ok) return;
+      const p = await res.json();
+
+      const campo = (etiqueta, valor) => valor ? `<p><strong>${etiqueta}:</strong> ${valor}</p>` : "";
+      document.getElementById("modal-fields").innerHTML =
+        campo("Nombre", p.name) + campo("Rol", p.role) + campo("Cédula", p.id_document) +
+        campo("Edad", p.age) + campo("Teléfono", p.phone) + campo("Correo", p.email) +
+        campo("Trabajo", p.workplace) + campo("Puesto", p.position) +
+        campo("Institución", p.institution) + campo("Carrera", p.program) +
+        campo("Notas", p.notes);
+
+      const img = document.getElementById("modal-photo");
+      if (p.photo_url) { img.src = p.photo_url; img.style.display = "block"; }
+      else { img.style.display = "none"; }
+
+      document.getElementById("person-modal").style.display = "flex";
+    });
+
+    document.getElementById("modal-close").addEventListener("click", () => {
+      document.getElementById("person-modal").style.display = "none";
+    });
   }
-  refreshDetected();
-  setInterval(refreshDetected, 2000);
-
-  document.getElementById("detected-btn").addEventListener("click", async () => {
-    if (currentPersonId === null) return;
-    const res = await fetch(`/api/person/${currentPersonId}`);
-    if (!res.ok) return;
-    const p = await res.json();
-
-    const campo = (etiqueta, valor) => valor ? `<p><strong>${etiqueta}:</strong> ${valor}</p>` : "";
-    document.getElementById("modal-fields").innerHTML =
-      campo("Nombre", p.name) + campo("Rol", p.role) + campo("Cédula", p.id_document) +
-      campo("Edad", p.age) + campo("Teléfono", p.phone) + campo("Correo", p.email) +
-      campo("Trabajo", p.workplace) + campo("Puesto", p.position) +
-      campo("Institución", p.institution) + campo("Carrera", p.program) +
-      campo("Notas", p.notes);
-
-    const img = document.getElementById("modal-photo");
-    if (p.photo_url) { img.src = p.photo_url; img.style.display = "block"; }
-    else { img.style.display = "none"; }
-
-    document.getElementById("person-modal").style.display = "flex";
-  });
-
-  document.getElementById("modal-close").addEventListener("click", () => {
-    document.getElementById("person-modal").style.display = "none";
-  });
-  {% endif %}
 </script>
 {% endblock %}
