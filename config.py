@@ -109,7 +109,7 @@ FACE_DETECTION_MIN_SIZE = (40, 40)
 # ---------------------------------------------------------------
 # RECONOCIMIENTO (LBPH)
 # ---------------------------------------------------------------
-RECOGNITION_CONFIDENCE_THRESHOLD = 65
+RECOGNITION_CONFIDENCE_THRESHOLD = 150
 
 # Imprime en la terminal el detalle de cada predicción (ID, distancia,
 # umbral, resultado). Útil para calibrar RECOGNITION_CONFIDENCE_THRESHOLD.
