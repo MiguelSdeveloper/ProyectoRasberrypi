@@ -83,12 +83,13 @@ CAMERA_USB_MIRROR = False
 # Está atornillada al revés físicamente, por eso necesita 180°.
 CAMERA_PI_ROTATE_180 = True
 CAMERA_PI_MIRROR = False
-# "motion"      -> (por defecto) solo detecta movimiento, liviano, no
-#                   compite por CPU con el reconocimiento de la USB.
-# "recognition" -> hace reconocimiento facial también en esta cámara
-#                   (más carga para la Pi 3B+ -- actívalo solo si
-#                   sabes que tu Pi lo soporta bien).
-CAMERA_PI_MODE = "motion"
+# "recognition" -> (ahora por defecto) hace reconocimiento facial
+#                   real también en esta cámara -- las 2 cámaras
+#                   identifican personas de forma independiente.
+# "motion"       -> solo detecta movimiento, sin identidad (más
+#                   liviano; disponible si alguna vez hace falta
+#                   bajar la carga de la Pi 3B+).
+CAMERA_PI_MODE = "recognition"
 
 # --- Cámara WiFi (desactivada por ahora, no está conectada) ---
 CAMERA_WIFI_ENABLED = False

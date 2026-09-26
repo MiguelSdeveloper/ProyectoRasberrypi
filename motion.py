@@ -27,7 +27,7 @@ class MotionDetector:
         )
         self.min_area = min_area or config.MOTION_MIN_AREA
 
-    def process_frame(self, frame):
+    def process_frame(self, frame, camera_source=None):
         mask = self.bg_subtractor.apply(frame)
         # Limpia ruido pequeño de la máscara (puntitos sueltos que no son movimiento real)
         kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (5, 5))

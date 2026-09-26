@@ -8,12 +8,19 @@ Pipeline por cada frame:
   -> 5) buscar en la base de datos (nombre/rol) -> 6) dibujar -> 7)
   devolver resultados ESTRUCTURADOS (no solo dibujo visual).
 
-CONCURRENCIA: este motor puede ser compartido por más de una cámara
-(varios CameraWorker en hilos distintos). cv2.CascadeClassifier y el
-LBPHFaceRecognizer NO garantizan ser seguros ante llamadas
-concurrentes desde 2 hilos a la vez -- por eso todo process_frame()
-está protegido con un candado (Lock). reload() usa el mismo candado
-para que nunca se recargue el modelo a la mitad de una predicción.
+CONCURRENCIA: este motor lo comparten 2 cámaras (Pi y USB), cada una
+en su propio hilo. cv2.CascadeClassifier y LBPHFaceRecognizer NO
+garantizan ser seguros ante llamadas concurrentes -- por eso todo
+process_frame() está protegido con un candado (Lock). reload() usa
+el mismo candado para que nunca se recargue el modelo a la mitad de
+una predicción.
+
+ESTADO DEL MODELO (model_status): "READY" | "NOT_TRAINED" | "ERROR".
+Antes, si trainer.yml existía pero estaba corrupto, recognizer.read()
+lanzaba una excepción SIN capturar -- eso tumbaba el import de este
+módulo y por lo tanto Flask completo no arrancaba. Ahora se captura:
+si falla la lectura, el estado queda en "ERROR" (no revienta nada) y
+el sistema sigue funcionando marcando a todos como "Desconocido".
 """
 import os
 import threading
@@ -30,26 +37,41 @@ class RecognitionEngine:
         self.recognizer = cv2.face.LBPHFaceRecognizer_create()
         self.people = {}
         self.ready = False
+        self.model_status = "NOT_TRAINED"
+        self.model_error = None
         self._lock = threading.Lock()
         self._load_model()
 
     def _load_model(self):
-        if os.path.exists(config.MODEL_PATH):
+        if not os.path.exists(config.MODEL_PATH):
+            self.ready = False
+            self.model_status = "NOT_TRAINED"
+            self.model_error = None
+            return
+        try:
             self.recognizer.read(config.MODEL_PATH)
             self.people = database.get_people()
             self.ready = True
-        else:
+            self.model_status = "READY"
+            self.model_error = None
+        except Exception as e:
+            # trainer.yml existe pero está corrupto/ilegible. No
+            # propagamos la excepción -- el sistema sigue funcionando,
+            # solo que sin reconocer a nadie hasta que se reentrene.
             self.ready = False
+            self.model_status = "ERROR"
+            self.model_error = str(e)
+            print(f"[RECOGNITION] ERROR cargando el modelo: {e}")
 
     def reload(self):
         with self._lock:
             self._load_model()
 
-    def process_frame(self, frame):
+    def process_frame(self, frame, camera_source=None):
         with self._lock:
-            return self._process_frame_locked(frame)
+            return self._process_frame_locked(frame, camera_source)
 
-    def _process_frame_locked(self, frame):
+    def _process_frame_locked(self, frame, camera_source):
         gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
         faces = self.detector.detectMultiScale(
             gray,
@@ -73,10 +95,11 @@ class RecognitionEngine:
                 person = self.people.get(predicted_id) if is_match else None
 
                 if config.RECOGNITION_DEBUG:
-                    print(f"[RECOGNITION] face=({x},{y},{w},{h}) predicted_id={predicted_id} "
-                          f"distance={confidence:.1f} threshold={config.RECOGNITION_CONFIDENCE_THRESHOLD} "
+                    print(f"[RECOGNITION] camera={camera_source or '?'} face=({x},{y},{w},{h}) "
+                          f"predicted_id={predicted_id} distance={confidence:.1f} "
+                          f"threshold={config.RECOGNITION_CONFIDENCE_THRESHOLD} "
                           f"result={'KNOWN' if person else 'UNKNOWN'}"
-                          + (f" person={person['name']}" if person else ""))
+                          + (f" person={person['name']} role={person['role']}" if person else ""))
 
                 if person:
                     label = person["name"]

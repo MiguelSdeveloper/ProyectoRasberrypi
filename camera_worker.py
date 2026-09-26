@@ -3,11 +3,17 @@
  CAMERA_WORKER.PY -- Cámara grabando SIEMPRE, con 2 modos posibles
 =====================================================================
 mode="recognition" -> detecta y RECONOCE caras (LBPH).
-mode="motion"       -> solo detecta MOVIMIENTO, sin identidad.
+mode="motion"       -> solo detecta MOVIMIENTO, sin identidad (ya no
+                       se usa por defecto en ninguna cámara activa,
+                       pero se conserva disponible como opción).
 
-RECONEXIÓN AUTOMÁTICA: si la cámara no está disponible, el worker no
-detiene el programa -- reintenta cada 5s y expone self.connected
-para que la web muestre "SIN SEÑAL".
+RECONEXIÓN AUTOMÁTICA e independiente por cámara: cada worker corre
+en su propio hilo con su propio estado, sin depender de las demás.
+
+ESTADO REAL (self.status): "CONNECTING" | "CONNECTED" | "DISCONNECTED"
+-- fuente de verdad única para lo que muestra la web. "CONNECTED"
+solo se marca una vez que la cámara abrió Y ya entregó su primer
+frame real (no solo "se abrió el dispositivo").
 """
 import threading
 import time
@@ -33,7 +39,16 @@ class CameraWorker(threading.Thread):
         self._mirror = mirror
 
         self.camera = None
-        self.connected = False
+        self.connected = False          # se mantiene por compatibilidad
+        self.status = "CONNECTING"      # "CONNECTING" | "CONNECTED" | "DISCONNECTED"
+        self.last_error = None
+
+        # Última persona reconocida por esta cámara (para el panel
+        # "PERSONA DETECTADA"). Se limpia sola si nadie aparece por
+        # un rato (ver PERSON_DETECTED_TTL más abajo).
+        self.last_person_id = None
+        self.last_person_seen_at = 0.0
+        self._PERSON_DETECTED_TTL = 5.0  # segundos que se mantiene visible tras perderla de vista
 
         self.general_recorder = ContinuousRecorder(camera_source)
 
@@ -66,16 +81,18 @@ class CameraWorker(threading.Thread):
 
         while self._running:
             if self.camera is None:
+                self.status = "CONNECTING"
                 try:
                     self.camera = CameraStream(
                         backend=self._backend, url=self._url,
                         rotate_180=self._rotate_180, mirror=self._mirror,
                     )
                     self.camera.start()
-                    self.connected = True
-                    print(f"[{self.camera_source}] Cámara conectada.")
+                    print(f"[{self.camera_source}] Cámara abierta, esperando primer frame...")
                 except Exception as e:
                     self.connected = False
+                    self.status = "DISCONNECTED"
+                    self.last_error = str(e)
                     print(f"[{self.camera_source}] Sin señal ({e}). Reintentando en 5s...")
                     time.sleep(5)
                     continue
@@ -85,6 +102,8 @@ class CameraWorker(threading.Thread):
             except Exception as e:
                 print(f"[{self.camera_source}] Se perdió la señal ({e}).")
                 self.connected = False
+                self.status = "DISCONNECTED"
+                self.last_error = str(e)
                 try:
                     self.camera.stop()
                 except Exception:
@@ -93,10 +112,21 @@ class CameraWorker(threading.Thread):
                 time.sleep(2)
                 continue
 
+            # Ya llegó un frame real: AHORA sí es "CONNECTED" de verdad.
+            self.connected = True
+            self.status = "CONNECTED"
+            self.last_error = None
+
             with self._lock:
                 self._latest_raw_frame = raw_frame.copy()
 
-            display_frame, results = self._processor.process_frame(raw_frame)
+            display_frame, results = self._processor.process_frame(raw_frame, camera_source=self.camera_source)
+
+            # Recuerda a la última persona CONOCIDA vista (para "PERSONA DETECTADA")
+            known = [r for r in results if r.get("person_id") is not None]
+            if known:
+                self.last_person_id = known[0]["person_id"]
+                self.last_person_seen_at = time.time()
 
             if self.mode == "recognition" and config.RECORD_PEOPLE_ENABLED and self.person_recorder:
                 self.person_recorder.update(display_frame, results)
@@ -109,6 +139,14 @@ class CameraWorker(threading.Thread):
                 self._latest_display_frame = display_frame
 
             time.sleep(delay)
+
+    def get_current_person_id(self):
+        """None si nadie conocido está (o estuvo hace muy poco) frente a esta cámara."""
+        if self.last_person_id is None:
+            return None
+        if time.time() - self.last_person_seen_at > self._PERSON_DETECTED_TTL:
+            return None
+        return self.last_person_id
 
     def get_display_jpeg(self):
         if not self.connected:

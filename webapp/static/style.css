@@ -163,6 +163,9 @@ main { flex: 1; padding: 24px; }
   margin: 4px 0 0;
   color: #9fd6bb;
 }
+.role-fields {
+  display: none;
+}
 
 /* ---- fin de la sección relevante ---- */
 
