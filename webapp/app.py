@@ -134,6 +134,7 @@ registration_lock = threading.Lock()
 registration_state = {
     "active": False, "person_id": None, "name": None, "role": None,
     "id_document": None, "phone": None, "email": None, "notes": None,
+    "age": None, "workplace": None, "position": None, "institution": None, "program": None,
     "count": 0, "target": config.CAPTURE_SAMPLE_TARGET, "done": False,
 }
 
@@ -244,27 +245,36 @@ def delete_person_route(person_id):
 @login_required()
 def dashboard():
     role = session.get("role")
-    recognition_events = database.get_recent_events(limit=15)
 
+    # A partir de esta ronda: los eventos de reconocimiento (persona
+    # reconocida O desconocida, con nombre/rol) son información SOLO
+    # para admin -- un viewer no debe verlos ni en el log combinado.
+    # El viewer solo tiene el estado de cámaras (vía /api/status).
     combined = []
-    with log_lock:
-        combined.extend(dict(e) for e in surveillance_log)
-        if role == "admin":
+    if role == "admin":
+        recognition_events = database.get_recent_events(limit=15)
+        with log_lock:
+            combined.extend(dict(e) for e in surveillance_log)
             combined.extend(dict(e) for e in internal_log)
-
-    for e in recognition_events:
-        estado = "en curso" if not e["end_time"] else f"hasta {e['end_time']}"
-        nivel = "danger" if e["person_name"] in ("Desconocido", "Movimiento") else "success"
-        combined.append({
-            "time": e["start_time"],
-            "message": f"{e['person_name']}" + (f" ({e['person_role']})" if e['person_role'] else "")
-                       + f" -- cámara {e['camera_source']} [{estado}]",
-            "level": nivel,
-        })
-    combined.sort(key=lambda e: e["time"], reverse=True)
+        for e in recognition_events:
+            estado = "en curso" if not e["end_time"] else f"hasta {e['end_time']}"
+            nivel = "danger" if e["person_name"] in ("Desconocido", "Movimiento") else "success"
+            combined.append({
+                "time": e["start_time"],
+                "message": f"{e['person_name']}" + (f" ({e['person_role']})" if e['person_role'] else "")
+                           + f" -- cámara {e['camera_source']} [{estado}]",
+                "level": nivel,
+            })
+        combined.sort(key=lambda e: e["time"], reverse=True)
 
     return render_template(
         "dashboard.html",
+        role=role,
+        events=combined[:20],
+        model_ready=engine.ready,
+        usb_connected=usb_worker.connected,
+        pi_connected=pi_worker.connected,
+        wifi_connected=(wifi_worker.connected if wifi_worker is not None else False),
     )
 
 
@@ -302,6 +312,116 @@ def video_feed_wifi():
 
 
 # ---------------------------------------------------------------
+# API DE ESTADO EN VIVO (cámaras + modelo) -- viewer y admin pueden
+# verla, es información operacional, no administrativa.
+# ---------------------------------------------------------------
+
+def _camera_status(worker):
+    if worker is None:
+        return {"status": "DISCONNECTED", "connected": False}
+    return {"status": worker.status, "connected": worker.connected}
+
+
+@app.route("/api/status")
+@login_required()
+def api_status():
+    if engine.model_status == "READY":
+        model = {"status": "READY"}
+    elif engine.model_status == "ERROR":
+        model = {"status": "ERROR", "error": engine.model_error}
+    else:
+        model = {"status": "NOT_TRAINED"}
+
+    return {
+        "cameras": {
+            "usb": _camera_status(usb_worker),
+            "pi": _camera_status(pi_worker),
+            "wifi": _camera_status(wifi_worker),
+        },
+        "model": model,
+    }
+
+
+# ---------------------------------------------------------------
+# API "PERSONA DETECTADA" -- SOLO admin, protegido en backend (no
+# solo oculto en el HTML).
+# ---------------------------------------------------------------
+
+@app.route("/api/current_person")
+@login_required(role="admin")
+def api_current_person():
+    """
+    Revisa qué persona conocida vio CADA cámara más recientemente
+    (dentro de los últimos segundos) y devuelve la más reciente de
+    las dos, si hay alguna.
+    """
+    candidates = []
+    for worker in (usb_worker, pi_worker, wifi_worker):
+        if worker is None:
+            continue
+        pid = worker.get_current_person_id()
+        if pid is not None:
+            candidates.append((worker.last_person_seen_at, worker.camera_source, pid))
+
+    if not candidates:
+        return {"person": None}
+
+    candidates.sort(reverse=True)
+    _, camera_source, person_id = candidates[0]
+    person = database.get_person(person_id)
+    if not person:
+        return {"person": None}
+
+    return {
+        "person": {
+            "id": person["id"], "name": person["name"], "role": person["role"],
+            "camera": camera_source,
+        }
+    }
+
+
+@app.route("/api/person/<int:person_id>")
+@login_required(role="admin")
+def api_person_detail(person_id):
+    """
+    Información PERSONAL completa -- protegida por @login_required
+    (role="admin") en el propio backend, no solo escondida en el
+    HTML. Un viewer que intente llamar esta URL directo recibe 403.
+    """
+    person = database.get_person(person_id)
+    if not person:
+        return {"error": "No encontrado"}, 404
+
+    has_photo = os.path.exists(os.path.join(config.PREVIEW_DIR, f"user.{person_id}.jpg"))
+    return {
+        "id": person["id"],
+        "name": person["name"],
+        "role": person["role"],
+        "id_document": person["id_document"],
+        "phone": person["phone"],
+        "email": person["email"],
+        "age": person["age"],
+        "workplace": person["workplace"],
+        "position": person["position"],
+        "institution": person["institution"],
+        "program": person["program"],
+        "notes": person["notes"],
+        "photo_url": url_for("api_person_photo", person_id=person_id) if has_photo else None,
+    }
+
+
+@app.route("/api/person/<int:person_id>/photo")
+@login_required(role="admin")
+def api_person_photo(person_id):
+    from flask import send_from_directory
+    filename = f"user.{person_id}.jpg"
+    path = os.path.join(config.PREVIEW_DIR, filename)
+    if not os.path.exists(path):
+        return "Sin foto", 404
+    return send_from_directory(config.PREVIEW_DIR, filename)
+
+
+# ---------------------------------------------------------------
 # REGISTRO DE PERSONAS -- EXCLUSIVAMENTE por la cámara USB
 # ---------------------------------------------------------------
 
@@ -315,6 +435,14 @@ def register():
         phone = request.form.get("phone", "").strip() or None
         email = request.form.get("email", "").strip() or None
         notes = request.form.get("notes", "").strip() or None
+        age_raw = request.form.get("age", "").strip()
+        age = int(age_raw) if age_raw.isdigit() else None
+        # Campos dependientes del rol -- se guardan solo los que
+        # correspondan, sin inventar columnas de más.
+        workplace = request.form.get("workplace", "").strip() or None
+        position = request.form.get("position", "").strip() or None
+        institution = request.form.get("institution", "").strip() or None
+        program = request.form.get("program", "").strip() or None
 
         if not name:
             flash("El nombre es obligatorio.")
@@ -337,6 +465,8 @@ def register():
             registration_state.update({
                 "active": True, "person_id": person_id, "name": name, "role": role,
                 "id_document": id_document, "phone": phone, "email": email, "notes": notes,
+                "age": age, "workplace": workplace, "position": position,
+                "institution": institution, "program": program,
                 "count": 0, "target": config.CAPTURE_SAMPLE_TARGET, "done": False,
             })
         return redirect(url_for("register_capture"))
@@ -417,6 +547,8 @@ def gen_register_frames():
             database.add_person(
                 data["person_id"], data["name"], data["role"],
                 data["id_document"], data["phone"], data["email"], data["notes"],
+                data["age"], data["workplace"], data["position"],
+                data["institution"], data["program"],
             )
             log_internal(f"Persona registrada: {data['name']} ({data['role']}, ID {data['person_id']})", "success")
 

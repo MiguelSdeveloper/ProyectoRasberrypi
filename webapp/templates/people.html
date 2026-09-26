@@ -7,7 +7,12 @@
     <ul id="event-log">
       {% for id, p in people.items() %}
       <li>
-        #{{ id }} &mdash; {{ p.name }} ({{ p.role }})
+        #{{ id }} &mdash; <strong>{{ p.name }}</strong> ({{ p.role }})
+        {% if p.id_document %}&middot; CI: {{ p.id_document }}{% endif %}
+        {% if p.phone %}&middot; Tel: {{ p.phone }}{% endif %}
+        {% if p.email %}&middot; {{ p.email }}{% endif %}
+        {% if p.institution %}&middot; {{ p.institution }}{% if p.program %} ({{ p.program }}){% endif %}{% endif %}
+        {% if p.workplace %}&middot; {{ p.workplace }}{% if p.position %} ({{ p.position }}){% endif %}{% endif %}
         <form method="POST" action="{{ url_for('delete_person_route', person_id=id) }}" style="display:inline;">
           <button type="submit" style="background:var(--danger); color:#fff; border:none; padding:2px 8px; cursor:pointer; margin-left:8px;">eliminar</button>
         </form>

@@ -141,6 +141,8 @@ main { flex: 1; padding: 24px; }
   width: 100%;          /* <-- tamaño del video dentro de su panel */
   border: 1px solid var(--accent-dim);
 }
+
+/* Recuadro compacto con las 3 cámaras en miniatura, lado a lado */
 .camera-grid {
   display: flex;
   flex-wrap: wrap;
@@ -163,6 +165,7 @@ main { flex: 1; padding: 24px; }
   margin: 4px 0 0;
   color: #9fd6bb;
 }
+
 .role-fields {
   display: none;
 }

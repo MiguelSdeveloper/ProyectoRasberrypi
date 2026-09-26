@@ -1,22 +1,71 @@
 {% extends "base.html" %}
 {% block title %}Registrar persona &mdash; FaceSec{% endblock %}
 {% block content %}
-<div class="login-box">
+<div class="login-box" style="max-width:440px;">
   <h1>REGISTRAR PERSONA NUEVA</h1>
-  <p class="subtitle">Se tomarán 40 muestras de su rostro con la cámara 1</p>
-  <form method="POST">
-    <label for="name">NOMBRE</label>
+  <p class="subtitle">Se tomarán {{ sample_target }} muestras de su rostro con la cámara USB</p>
+  <form method="POST" id="register-form">
+    <label for="name">NOMBRE *</label>
     <input type="text" id="name" name="name" required>
 
-    <label for="role">ROL</label>
+    <label for="role">ROL *</label>
     <select id="role" name="role" style="width:100%; background:#0d1416; color:var(--text); border:1px solid var(--accent-dim); padding:8px; margin-top:4px;">
       <option value="Admin">Admin</option>
       <option value="Estudiante" selected>Estudiante</option>
+      <option value="Empleado">Empleado</option>
       <option value="Invitado">Invitado</option>
     </select>
+
+    <label for="age">EDAD (opcional)</label>
+    <input type="number" id="age" name="age" min="0" max="120">
+
+    <label for="id_document">CÉDULA / ID (opcional)</label>
+    <input type="text" id="id_document" name="id_document">
+
+    <label for="phone">TELÉFONO (opcional)</label>
+    <input type="text" id="phone" name="phone">
+
+    <label for="email">CORREO (opcional)</label>
+    <input type="email" id="email" name="email">
+
+    <!-- Campos que solo aparecen según el rol elegido -->
+    <div id="fields-estudiante" class="role-fields">
+      <label for="institution">INSTITUCIÓN (opcional)</label>
+      <input type="text" id="institution" name="institution">
+      <label for="program">CARRERA / PROGRAMA (opcional)</label>
+      <input type="text" id="program" name="program">
+    </div>
+
+    <div id="fields-empleado" class="role-fields">
+      <label for="workplace">LUGAR DE TRABAJO (opcional)</label>
+      <input type="text" id="workplace" name="workplace">
+      <label for="position">PUESTO / CARGO (opcional)</label>
+      <input type="text" id="position" name="position">
+    </div>
+
+    <label for="notes">NOTAS (opcional)</label>
+    <input type="text" id="notes" name="notes">
 
     <button type="submit">EMPEZAR CAPTURA</button>
   </form>
   <p style="margin-top:16px;"><a href="{{ url_for('dashboard') }}">&larr; Volver al CCTV sin registrar</a></p>
 </div>
+
+<script>
+  // Muestra solo los campos que corresponden al rol elegido -- el
+  // servidor solo guarda los que apliquen (los demás llegan vacíos
+  // y add_person() los guarda como NULL, sin inventar datos).
+  const roleSelect = document.getElementById("role");
+  const groups = {
+    "Estudiante": document.getElementById("fields-estudiante"),
+    "Empleado": document.getElementById("fields-empleado"),
+  };
+
+  function updateFields() {
+    Object.values(groups).forEach(g => g.style.display = "none");
+    if (groups[roleSelect.value]) groups[roleSelect.value].style.display = "block";
+  }
+  roleSelect.addEventListener("change", updateFields);
+  updateFields();
+</script>
 {% endblock %}
