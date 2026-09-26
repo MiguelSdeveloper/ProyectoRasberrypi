@@ -1,125 +1,349 @@
-# FaceSec — Proyecto completo (2 cámaras, CCTV 24/7)
+VIGIA — Sistema de Vigilancia Inteligente
 
-Sistema de reconocimiento facial + vigilancia para Raspberry Pi. Este
-README refleja el estado FINAL del proyecto.
+Sistema de videovigilancia inteligente desarrollado sobre una Raspberry Pi 3B+, utilizando cámaras, reconocimiento facial, detección de movimiento, grabación continua y una interfaz web para administración y monitoreo.
 
-## 1. Archivos — cuáles sirven, cuáles se eliminan
+El proyecto fue desarrollado para la asignatura de Sistemas Embebidos de la Facultad de Ingeniería de Sistemas Computacionales de la Universidad Tecnológica de Panamá.
 
-| Archivo | Estado | Por qué |
-|---|---|---|
-| `config.py` | ✅ Activo | Configuración central |
-| `database.py` | ✅ Activo | Personas, usuarios, eventos (SQLite) |
-| `camera.py` | ✅ Activo | Abstrae UNA cámara física (usb / picamera2 / wifi) |
-| `camera_worker.py` | ✅ Activo | Cámara grabando 24/7, con reconexión automática |
-| `recognition_engine.py` | ✅ Activo | Detección + reconocimiento (cámara 1) |
-| `motion.py` | ✅ **Nuevo** | Detección de movimiento (cámara 2, WiFi) |
-| `recorder.py` | ✅ Activo | 3 grabadores (persona/general/alerta) |
-| `train_model.py` | ✅ Activo | Entrena LBPH (botón web) |
-| `menu.py` | ✅ Activo | Punto de entrada único en la Pi |
-| `webapp/app.py` + `templates/` + `static/` | ✅ Activo | Panel web completo |
-| `requirements.txt` | ✅ Activo | Dependencias pip |
-| ~~`recognize_live.py`~~ | ❌ **Elimínalo** | Ya no aporta nada que el panel web no haga mejor, y puede chocar con la cámara si lo corres junto al panel |
-| ~~`capture_dataset.py`~~ | ❌ **Elimínalo** | Reemplazado por registro web (`/register`) |
-| ~~`db_tool.py`~~ | ❌ Ya eliminado (decisión tuya) | Reemplazado por DB Browser for SQLite |
-| `data/labels.json` | 🗑️ Bórralo si existe | Ya no se usa |
+---
 
-**Comando para terminar la limpieza:**
-```bash
-rm -f capture_dataset.py recognize_live.py data/labels.json
-```
+🎯 Objetivo
 
-## 2. Arquitectura — 2 cámaras, cada una con un rol distinto
+VIGIA busca proporcionar un sistema de vigilancia capaz de:
 
-CÁMARA 1 (principal, USB/Pi) CÁMARA 2 (WiFi)
-│ │
-recognition_engine.py motion.py
-(detecta + RECONOCE caras) (solo detecta movimiento,
-│ no identidad -- más liviano)
-└──────────────┬─────────────────────┘
+- Monitorear cámaras en tiempo real.
+- Detectar rostros.
+- Identificar personas registradas mediante reconocimiento facial.
+- Diferenciar personas conocidas de desconocidas.
+- Registrar eventos de reconocimiento.
+- Grabar continuamente el contenido de las cámaras.
+- Generar grabaciones de alerta.
+- Administrar personas y usuarios desde una interfaz web.
+- Trabajar de forma independiente aunque una cámara presente problemas de conexión.
+
+---
+
+🧠 Reconocimiento facial
+
+El reconocimiento facial utiliza:
+
+- OpenCV
+- Haar Cascade para detección facial.
+- LBPH (Local Binary Patterns Histograms) para reconocimiento.
+- Imágenes de entrenamiento almacenadas en escala de grises.
+- Un umbral configurable para determinar si una coincidencia es suficientemente similar.
+
+Las personas registradas pueden ser identificadas automáticamente por el sistema.
+
+Cuando una persona no coincide con el modelo entrenado, el sistema la clasifica como desconocida.
+
+---
+
+📷 Cámaras
+
+El sistema está preparado para trabajar con diferentes fuentes de vídeo.
+
+Cámara principal
+
+La cámara principal puede utilizar:
+
+- Cámara USB.
+- Cámara CSI de Raspberry Pi mediante Picamera2.
+
+Esta cámara es utilizada para:
+
+- Videovigilancia.
+- Detección facial.
+- Reconocimiento facial.
+- Grabación.
+
+Cámara WiFi
+
+El proyecto también contempla una segunda cámara WiFi.
+
+Esta cámara se utiliza principalmente para:
+
+- Detección de movimiento.
+- Generación de alertas.
+- Grabación.
+
+La cámara WiFi no necesita realizar reconocimiento facial, reduciendo la carga de procesamiento de la Raspberry Pi.
+
+Si la cámara WiFi no está disponible, el resto del sistema puede continuar funcionando.
+
+---
+
+🖥️ Panel web
+
+VIGIA cuenta con una interfaz web desarrollada con Flask.
+
+Desde el panel se pueden realizar diferentes operaciones:
+
+- Visualizar las cámaras.
+- Ver el estado de las cámaras.
+- Registrar personas.
+- Consultar personas registradas.
+- Administrar usuarios.
+- Consultar información de personas detectadas.
+- Visualizar eventos de reconocimiento.
+- Cerrar sesión.
+
+El sistema utiliza diferentes niveles de acceso.
+
+Administrador
+
+Puede acceder a las funciones administrativas y consultar la información completa de las personas registradas.
+
+Usuario / Viewer
+
+Dispone de acceso limitado a las funciones del sistema.
+
+---
+
+👤 Registro de personas
+
+El registro web permite almacenar información de las personas, incluyendo campos personales y datos relacionados con su rol.
+
+Durante el registro se generan las muestras utilizadas posteriormente para entrenar el modelo de reconocimiento facial.
+
+Las imágenes utilizadas por LBPH se almacenan en escala de grises.
+
+Además, el sistema puede conservar una imagen de referencia a color para visualización.
+
+---
+
+🎥 Sistema de grabación
+
+VIGIA cuenta con diferentes tipos de grabación:
+
+data/recordings/
+├── general/
+├── people/
+└── alerts/
+
+Grabación general
+
+Registra continuamente las cámaras en bloques de tiempo.
+
+Grabación de personas
+
+Guarda grabaciones relacionadas con personas reconocidas.
+
+Grabación de alertas
+
+Puede almacenar:
+
+- Personas desconocidas.
+- Movimiento detectado por la cámara secundaria.
+
+Las grabaciones de alerta utilizan información temporal para identificar el momento en que ocurrió el evento.
+
+---
+
+🗄️ Base de datos
+
+El sistema utiliza SQLite como base de datos local.
+
+Archivo principal:
+
+data/facesec.db
+
+La base de datos contiene información relacionada con:
+
+- Personas.
+- Usuarios.
+- Eventos de reconocimiento.
+
+Puede visualizarse utilizando:
+
+sqlitebrowser data/facesec.db
+
+---
+
+📁 Estructura del proyecto
+
+ProyectoRasberrypi/
 │
-camera_worker.py
-(graba 24/7 en segundo plano,
-reconecta solo si se cae la señal)
+├── data/
+│   ├── facesec.db
+│   ├── dataset/
+│   ├── recordings/
+│   └── previews/
 │
-recorder.py
-PersonRecorder · ContinuousRecorder · AlertRecorder
+├── webapp/
+│   ├── app.py
+│   ├── templates/
+│   └── static/
+│
+├── camera.py
+├── camera_worker.py
+├── config.py
+├── database.py
+├── menu.py
+├── motion.py
+├── recognition_engine.py
+├── recorder.py
+├── train_model.py
+├── requirements.txt
+└── README.md
 
+---
 
-Cada `CameraWorker` corre en su propio hilo, sin importar si alguien
-está viendo el panel. Si una cámara no está disponible (apagada, mal
-configurada, sin red), el worker reintenta conectar cada 5 segundos
-solo, y la web muestra **"SIN SEÑAL"** en vez de romperse.
+⚙️ Componentes principales
 
-## 3. Instalación
+Archivo| Función
+"config.py"| Configuración general del sistema
+"database.py"| Administración de SQLite
+"camera.py"| Abstracción de las cámaras
+"camera_worker.py"| Ejecución y reconexión de cámaras
+"recognition_engine.py"| Detección y reconocimiento facial
+"motion.py"| Detección de movimiento
+"recorder.py"| Sistema de grabación
+"train_model.py"| Entrenamiento del modelo LBPH
+"menu.py"| Punto de entrada principal
+"webapp/app.py"| Servidor web Flask
+"webapp/templates/"| Interfaz HTML
+"webapp/static/"| CSS y recursos de la interfaz
 
-```bash
-sudo apt update && sudo apt full-upgrade -y
+---
+
+🛠️ Tecnologías
+
+Hardware
+
+- Raspberry Pi 3B+
+- Cámara CSI de Raspberry Pi
+- Cámara USB
+- Cámara WiFi
+- Almacenamiento USB
+
+Software
+
+- Python
+- Flask
+- OpenCV
+- Picamera2
+- SQLite
+- Werkzeug
+- Imutils
+
+Inteligencia artificial / visión
+
+- Haar Cascade
+- LBPH
+- OpenCV
+
+---
+
+📦 Instalación
+
+Actualizar el sistema:
+
+sudo apt update
+sudo apt full-upgrade -y
+
+Instalar dependencias principales:
+
 sudo apt install -y python3-picamera2 python3-opencv libopenblas-dev ffmpeg libcap-dev sqlitebrowser
 
+Crear el entorno virtual:
+
 python3 -m venv --system-site-packages venv
+
+Activarlo:
+
 source venv/bin/activate
+
+Instalar dependencias Python:
+
 pip install flask werkzeug imutils
-```
-Ninguna dependencia nueva para esta ronda de cambios -- `motion.py`
-usa solo OpenCV, que ya tenías instalado.
 
-## 4. Configurar la cámara 2 (WiFi)
+---
 
-```python
-CAMERA_WIFI_ENABLED = True
-CAMERA_WIFI_URL = "http://192.168.0.50:81/stream"   # la URL de tu cámara
-```
-Si `CAMERA_WIFI_URL` queda vacío, o la cámara no responde, el panel
-simplemente muestra "CÁMARA 2" con **SIN SEÑAL** -- no rompe nada del
-resto del sistema.
+▶️ Ejecución
 
-## 5. Uso
+El sistema puede iniciarse mediante:
 
-```bash
 python menu.py
-```
-Login inicial generado al azar la primera vez (se imprime en la
-terminal, una sola vez). Desde el panel: **"registrar persona"**,
-**"personas"**, **"usuarios"**.
 
-## 6. Reconocimiento facial — aclaración sobre blanco y negro
+El sistema inicia el entorno de vigilancia y proporciona acceso al panel web.
 
-Las fotos de entrenamiento se guardan en escala de grises **a
-propósito** — el modelo LBPH compara patrones de textura, no color,
-así que el color no aporta nada y solo haría todo más lento. **Esto
-no afecta la detección de ninguna forma.** Como referencia visual
-extra (no se usa para reconocer), ahora también se guarda una foto a
-color de la primera muestra de cada persona en `data/previews/`.
+---
 
-## 7. Grabación — 3 sistemas por cámara
+🔐 Seguridad y usuarios
 
-| Carpeta | Qué graba |
-|---|---|
-| `data/recordings/general/<cámara>/` | Todo, siempre, en bloques de 10 min |
-| `data/recordings/people/<cámara>/` | Solo personas conocidas (cámara 1) |
-| `data/recordings/alerts/<cámara>/` | Desconocidos (cámara 1) o movimiento (cámara 2) |
+VIGIA utiliza autenticación para controlar el acceso al panel.
 
-Los clips de alerta usan nombre con fecha y rango real de horas, y
-NO se fragmentan: si la persona/movimiento reaparece dentro de 60
-segundos (`ALERT_RESUME_WINDOW_SECONDS`), sigue en el mismo archivo.
+El sistema diferencia entre usuarios con permisos administrativos y usuarios con permisos limitados.
 
-## 8. Base de datos
+La información personal de las personas registradas se encuentra restringida según el nivel de acceso.
 
-3 tablas en `data/facesec.db` (`people` con datos personales
-opcionales, `recognition_events`, `users`). Adminístrala con:
-```bash
-sqlitebrowser data/facesec.db
-```
+---
 
-## 9. Dependencias instaladas (acumulado del proyecto completo)
+🔄 Reconexión de cámaras
 
-**apt:** `python3-picamera2 python3-opencv libopenblas-dev ffmpeg libcap-dev sqlitebrowser`
+Cada cámara funciona mediante su propio "CameraWorker".
 
-**pip (venv):** `flask werkzeug imutils`
+Si una cámara pierde conexión, el sistema intenta reconectarla automáticamente.
 
-Sin dlib, sin TensorFlow/PyTorch -- decisión deliberada por las
-limitaciones de la Pi 3B+.
+Una cámara desconectada no debería detener todo el sistema de vigilancia.
 
-## 10. Dónde mover/redimensionar las cámaras en la web
+---
 
-`webapp/static/style.css`, sección `.grid` y `.feed-panel`.
+🧹 Archivos antiguos
+
+Durante el desarrollo se reemplazaron herramientas independientes de captura y reconocimiento por el flujo integrado dentro del panel web.
+
+Entre los archivos que ya no forman parte del flujo principal se encuentran:
+
+recognize_live.py
+capture_dataset.py
+
+La administración y registro se realizan actualmente desde la aplicación web.
+
+---
+
+👨‍💻 Equipo
+
+VIGIA — Sistema de Vigilancia Inteligente
+
+- Miguel Sánchez — Coordinador
+- Greyce Sandoval
+- Joseph Franco
+- Mario Barsallo
+- Ana Patiño
+
+---
+
+🎓 Contexto académico
+
+Proyecto desarrollado para:
+
+Universidad Tecnológica de Panamá
+
+Facultad de Ingeniería de Sistemas Computacionales
+
+Asignatura: Sistemas Embebidos
+
+---
+
+📌 Estado del proyecto
+
+VIGIA es un prototipo funcional de videovigilancia inteligente basado en Raspberry Pi.
+
+Actualmente integra:
+
+- Videovigilancia.
+- Dos fuentes principales de cámara USB/CSI.
+- Cámara WiFi para detección de movimiento.
+- Reconocimiento facial.
+- Registro de personas.
+- Gestión de usuarios.
+- Base de datos SQLite.
+- Grabación continua.
+- Grabaciones de personas.
+- Grabaciones de alerta.
+- Interfaz web.
+- Sistema de autenticación.
+- Reconexión automática de cámaras.
+
+El proyecto continúa en desarrollo y optimización del reconocimiento facial entre diferentes cámaras y condiciones de iluminación.
