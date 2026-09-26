@@ -1,27 +1,10 @@
 """
 =====================================================================
- RECOGNITION_ENGINE.PY -- Detección + reconocimiento facial
+ RECOGNITION_ENGINE.PY
+ Detección + reconocimiento facial con LBPH
 =====================================================================
-Pipeline por cada frame:
-  1) gris -> 2) Haar Cascade detecta TODAS las caras -> 3) por cada
-  cara, LBPH.predict() -> 4) interpretar distancia contra el umbral
-  -> 5) buscar en la base de datos (nombre/rol) -> 6) dibujar -> 7)
-  devolver resultados ESTRUCTURADOS (no solo dibujo visual).
-
-CONCURRENCIA: este motor lo comparten 2 cámaras (Pi y USB), cada una
-en su propio hilo. cv2.CascadeClassifier y LBPHFaceRecognizer NO
-garantizan ser seguros ante llamadas concurrentes -- por eso todo
-process_frame() está protegido con un candado (Lock). reload() usa
-el mismo candado para que nunca se recargue el modelo a la mitad de
-una predicción.
-
-ESTADO DEL MODELO (model_status): "READY" | "NOT_TRAINED" | "ERROR".
-Antes, si trainer.yml existía pero estaba corrupto, recognizer.read()
-lanzaba una excepción SIN capturar -- eso tumbaba el import de este
-módulo y por lo tanto Flask completo no arrancaba. Ahora se captura:
-si falla la lectura, el estado queda en "ERROR" (no revienta nada) y
-el sistema sigue funcionando marcando a todos como "Desconocido".
 """
+
 import os
 import threading
 
@@ -32,92 +15,307 @@ import database
 
 
 class RecognitionEngine:
+
     def __init__(self):
-        self.detector = cv2.CascadeClassifier(config.CASCADE_PATH)
+
+        self.detector = cv2.CascadeClassifier(
+            config.CASCADE_PATH
+        )
+
         self.recognizer = cv2.face.LBPHFaceRecognizer_create()
+
         self.people = {}
+
         self.ready = False
+
         self.model_status = "NOT_TRAINED"
+
         self.model_error = None
+
         self._lock = threading.Lock()
+
         self._load_model()
 
+
+    # ==============================================================
+    # CARGAR MODELO
+    # ==============================================================
+
     def _load_model(self):
+
         if not os.path.exists(config.MODEL_PATH):
+
             self.ready = False
             self.model_status = "NOT_TRAINED"
             self.model_error = None
+
             return
+
         try:
-            self.recognizer.read(config.MODEL_PATH)
+
+            self.recognizer.read(
+                config.MODEL_PATH
+            )
+
             self.people = database.get_people()
+
             self.ready = True
+
             self.model_status = "READY"
+
             self.model_error = None
+
         except Exception as e:
-            # trainer.yml existe pero está corrupto/ilegible. No
-            # propagamos la excepción -- el sistema sigue funcionando,
-            # solo que sin reconocer a nadie hasta que se reentrene.
+
             self.ready = False
+
             self.model_status = "ERROR"
+
             self.model_error = str(e)
-            print(f"[RECOGNITION] ERROR cargando el modelo: {e}")
+
+            print(
+                f"[RECOGNITION] ERROR cargando "
+                f"el modelo: {e}"
+            )
+
+
+    # ==============================================================
+    # RECARGAR MODELO
+    # ==============================================================
 
     def reload(self):
+
         with self._lock:
+
             self._load_model()
 
-    def process_frame(self, frame, camera_source=None):
-        with self._lock:
-            return self._process_frame_locked(frame, camera_source)
 
-    def _process_frame_locked(self, frame, camera_source):
-        gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+    # ==============================================================
+    # PROCESAR FRAME
+    # ==============================================================
+
+    def process_frame(
+        self,
+        frame,
+        camera_source=None
+    ):
+
+        with self._lock:
+
+            return self._process_frame_locked(
+                frame,
+                camera_source
+            )
+
+
+    # ==============================================================
+    # PROCESAMIENTO INTERNO
+    # ==============================================================
+
+    def _process_frame_locked(
+        self,
+        frame,
+        camera_source
+    ):
+
+        gray = cv2.cvtColor(
+            frame,
+            cv2.COLOR_BGR2GRAY
+        )
+
+
+        # Detectar caras
+
         faces = self.detector.detectMultiScale(
             gray,
             scaleFactor=config.FACE_DETECTION_SCALE_FACTOR,
             minNeighbors=config.FACE_DETECTION_MIN_NEIGHBORS,
-            minSize=config.FACE_DETECTION_MIN_SIZE,
+            minSize=config.FACE_DETECTION_MIN_SIZE
         )
 
+
         results = []
+
+
         for (x, y, w, h) in faces:
+
             label = "Desconocido"
+
             role = None
+
             person_id = None
+
             confidence = None
 
+
             if self.ready:
-                predicted_id, confidence = self.recognizer.predict(gray[y:y + h, x:x + w])
-                # LBPH: DISTANCIA más baja = MÁS parecido. Por eso la
-                # comparación es "menor que el umbral", no al revés.
-                is_match = confidence < config.RECOGNITION_CONFIDENCE_THRESHOLD
-                person = self.people.get(predicted_id) if is_match else None
+
+                # Recortar rostro
+
+                face_roi = gray[
+                    y:y + h,
+                    x:x + w
+                ]
+
+
+                # ==================================================
+                # RECONOCIMIENTO LBPH
+                #
+                # USB Y PI UTILIZAN EL MISMO PROCESAMIENTO.
+                # ==================================================
+
+                predicted_id, confidence = (
+                    self.recognizer.predict(
+                        face_roi
+                    )
+                )
+
+
+                # Menor distancia = mayor similitud
+
+                is_match = (
+                    confidence
+                    < config.RECOGNITION_CONFIDENCE_THRESHOLD
+                )
+
+
+                person = (
+                    self.people.get(predicted_id)
+                    if is_match
+                    else None
+                )
+
+
+                # ==================================================
+                # DEBUG
+                # ==================================================
 
                 if config.RECOGNITION_DEBUG:
-                    print(f"[RECOGNITION] camera={camera_source or '?'} face=({x},{y},{w},{h}) "
-                          f"predicted_id={predicted_id} distance={confidence:.1f} "
-                          f"threshold={config.RECOGNITION_CONFIDENCE_THRESHOLD} "
-                          f"result={'KNOWN' if person else 'UNKNOWN'}"
-                          + (f" person={person['name']} role={person['role']}" if person else ""))
+
+                    if person:
+
+                        print(
+                            f"[RECOGNITION] "
+                            f"camera={camera_source or '?'} "
+                            f"face=({x},{y},{w},{h}) "
+                            f"predicted_id={predicted_id} "
+                            f"distance={confidence:.1f} "
+                            f"threshold="
+                            f"{config.RECOGNITION_CONFIDENCE_THRESHOLD} "
+                            f"result=KNOWN "
+                            f"person={person['name']} "
+                            f"role={person['role']}"
+                        )
+
+                    else:
+
+                        print(
+                            f"[RECOGNITION] "
+                            f"camera={camera_source or '?'} "
+                            f"face=({x},{y},{w},{h}) "
+                            f"predicted_id={predicted_id} "
+                            f"distance={confidence:.1f} "
+                            f"threshold="
+                            f"{config.RECOGNITION_CONFIDENCE_THRESHOLD} "
+                            f"result=UNKNOWN"
+                        )
+
+
+                # ==================================================
+                # PERSONA CONOCIDA
+                # ==================================================
 
                 if person:
+
                     label = person["name"]
+
                     role = person["role"]
+
                     person_id = predicted_id
 
-            color = (0, 200, 0) if label != "Desconocido" else (0, 0, 200)
-            display_text = f"{label} ({role})" if role else label
-            cv2.rectangle(frame, (x, y), (x + w, y + h), color, 2)
-            cv2.putText(frame, display_text, (x, y - 10),
-                        cv2.FONT_HERSHEY_SIMPLEX, 0.6, color, 2)
+
+            # ======================================================
+            # COLOR DEL RECTÁNGULO
+            # ======================================================
+
+            if label != "Desconocido":
+
+                color = (0, 200, 0)
+
+            else:
+
+                color = (0, 0, 200)
+
+
+            # ======================================================
+            # TEXTO
+            # ======================================================
+
+            if role:
+
+                display_text = (
+                    f"{label} ({role})"
+                )
+
+            else:
+
+                display_text = label
+
+
+            # ======================================================
+            # RECTÁNGULO
+            # ======================================================
+
+            cv2.rectangle(
+                frame,
+                (x, y),
+                (x + w, y + h),
+                color,
+                2
+            )
+
+
+            # ======================================================
+            # NOMBRE
+            # ======================================================
+
+            cv2.putText(
+                frame,
+                display_text,
+                (x, y - 10),
+                cv2.FONT_HERSHEY_SIMPLEX,
+                0.6,
+                color,
+                2
+            )
+
+
+            # ======================================================
+            # RESULTADO
+            # ======================================================
 
             results.append({
+
                 "person_id": person_id,
+
                 "label": label,
+
                 "role": role,
-                "confidence": float(confidence) if confidence is not None else None,
-                "box": [int(x), int(y), int(w), int(h)],
+
+                "confidence": (
+                    float(confidence)
+                    if confidence is not None
+                    else None
+                ),
+
+                "box": [
+                    int(x),
+                    int(y),
+                    int(w),
+                    int(h)
+                ]
+
             })
+
 
         return frame, results
