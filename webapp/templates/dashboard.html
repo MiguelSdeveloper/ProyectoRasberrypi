@@ -1,141 +1,414 @@
 {% extends "base.html" %}
 {% block title %}Panel &mdash; FaceSec{% endblock %}
+
 {% block content %}
+
 <div class="grid">
 
   <section class="feed-panel">
+
     <h2>CÁMARAS</h2>
+
     <div class="camera-grid">
+
       <div class="camera-tile">
         <img src="{{ url_for('video_feed_usb') }}" alt="cámara USB">
-        <p class="camera-label">CÁMARA USB (principal) &middot; <span id="status-usb">...</span></p>
+
+        <p class="camera-label">
+          CÁMARA USB (principal) &middot;
+          <span id="status-usb">...</span>
+        </p>
       </div>
+
       <div class="camera-tile">
         <img src="{{ url_for('video_feed') }}" alt="cámara Pi">
-        <p class="camera-label">CÁMARA PI (secundaria) &middot; <span id="status-pi">...</span></p>
+
+        <p class="camera-label">
+          CÁMARA PI (secundaria) &middot;
+          <span id="status-pi">...</span>
+        </p>
       </div>
+
       <div class="camera-tile">
         <img src="{{ url_for('video_feed_wifi') }}" alt="cámara WiFi">
-        <p class="camera-label">CÁMARA WIFI &middot; <span id="status-wifi">...</span></p>
+
+        <p class="camera-label">
+          CÁMARA WIFI &middot;
+          <span id="status-wifi">...</span>
+        </p>
       </div>
+
     </div>
-    <p class="status">MODELO: <span id="status-model">...</span></p>
+
+    <p class="status">
+      MODELO:
+      <span id="status-model">...</span>
+    </p>
+
   </section>
+
 
   {% if role == "admin" %}
+
   <section class="feed-panel" id="detected-panel" style="display:none;">
+
     <h2>PERSONA DETECTADA</h2>
-    <p id="detected-name" style="font-size:1.1rem; color:var(--accent); margin:6px 0;"></p>
-    <p id="detected-role" style="color:#9fd6bb; margin:0 0 10px;"></p>
-    <button id="detected-btn" style="background:var(--accent-dim); color:#04140c; border:none; padding:8px 14px; cursor:pointer;">
+
+    <p
+      id="detected-name"
+      style="font-size:1.1rem; color:var(--accent); margin:6px 0;"
+    ></p>
+
+    <p
+      id="detected-role"
+      style="color:#9fd6bb; margin:0 0 10px;"
+    ></p>
+
+    <button
+      id="detected-btn"
+      style="background:var(--accent-dim); color:#04140c; border:none; padding:8px 14px; cursor:pointer;"
+    >
       Mostrar información completa
     </button>
+
   </section>
+
   {% endif %}
 
+
   <section class="log-panel">
+
     <h2>REGISTRO DE EVENTOS</h2>
+
     <ul id="event-log">
+
       {% for e in events %}
-      <li class="{{ e.level }}">[{{ e.time }}] {{ e.message }}</li>
+
+      <li class="{{ e.level }}">
+        [{{ e.time }}] {{ e.message }}
+      </li>
+
       {% else %}
-      <li>{% if role == "admin" %}Sin eventos todavía.{% else %}Los eventos de reconocimiento son solo para administradores.{% endif %}</li>
+
+      <li>
+        {% if role == "admin" %}
+          Sin eventos todavía.
+        {% else %}
+          Los eventos de reconocimiento son solo para administradores.
+        {% endif %}
+      </li>
+
       {% endfor %}
+
     </ul>
+
   </section>
+
 </div>
+
 
 {% if role == "admin" %}
-<!-- Modal simple con la información completa de la persona (sin librerías nuevas) -->
-<div id="person-modal" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,0.7); z-index:50; align-items:center; justify-content:center;">
-  <div style="background:var(--panel); border:1px solid var(--accent-dim); padding:24px; max-width:420px; width:90%;">
-    <h2 style="color:var(--accent); margin-top:0;">INFORMACIÓN DE LA PERSONA</h2>
-    <img id="modal-photo" src="" alt="foto" style="max-width:120px; display:none; margin-bottom:12px; border:1px solid var(--accent-dim);">
-    <div id="modal-fields" style="font-size:0.85rem; line-height:1.6;"></div>
-    <button id="modal-close" style="margin-top:16px; background:var(--accent-dim); color:#04140c; border:none; padding:8px 14px; cursor:pointer;">Cerrar</button>
+
+<!-- Modal con la información completa de la persona -->
+
+<div
+  id="person-modal"
+  style="
+    display:none;
+    position:fixed;
+    inset:0;
+    background:rgba(0,0,0,0.7);
+    z-index:50;
+    align-items:center;
+    justify-content:center;
+  "
+>
+
+  <div
+    style="
+      background:var(--panel);
+      border:1px solid var(--accent-dim);
+      padding:24px;
+      max-width:420px;
+      width:90%;
+    "
+  >
+
+    <h2 style="color:var(--accent); margin-top:0;">
+      INFORMACIÓN DE LA PERSONA
+    </h2>
+
+    <img
+      id="modal-photo"
+      src=""
+      alt="foto"
+      style="
+        max-width:120px;
+        display:none;
+        margin-bottom:12px;
+        border:1px solid var(--accent-dim);
+      "
+    >
+
+    <div
+      id="modal-fields"
+      style="font-size:0.85rem; line-height:1.6;"
+    ></div>
+
+    <button
+      id="modal-close"
+      style="
+        margin-top:16px;
+        background:var(--accent-dim);
+        color:#04140c;
+        border:none;
+        padding:8px 14px;
+        cursor:pointer;
+      "
+    >
+      Cerrar
+    </button>
+
   </div>
+
 </div>
+
 {% endif %}
 
+
 <script>
-  // ---- Estado de cámaras y modelo EN VIVO (arregla los "SIN SEÑAL" falsos) ----
-  const labels = {
-    "CONNECTED": '<span class="ok">EN LÍNEA</span>',
-    "CONNECTING": '<span class="warn">CONECTANDO...</span>',
-    "DISCONNECTED": '<span class="warn">SIN SEÑAL</span>',
-  };
-  const modelLabels = {
-    "READY": '<span class="ok">ENTRENADO</span>',
-    "NOT_TRAINED": '<span class="warn">SIN ENTRENAR</span>',
-    "ERROR": '<span style="color:var(--danger);">ERROR EN EL MODELO</span>',
-  };
 
-  async function refreshStatus() {
-    try {
-      const res = await fetch("{{ url_for('api_status') }}");
-      const data = await res.json();
-      document.getElementById("status-usb").innerHTML = labels[data.cameras.usb.status] || data.cameras.usb.status;
-      document.getElementById("status-pi").innerHTML = labels[data.cameras.pi.status] || data.cameras.pi.status;
-      document.getElementById("status-wifi").innerHTML = labels[data.cameras.wifi.status] || data.cameras.wifi.status;
-      document.getElementById("status-model").innerHTML = modelLabels[data.model.status] || data.model.status;
-    } catch (e) { /* red caída momentáneamente, se reintenta solo */ }
+// ------------------------------------------------------------
+// Estado de cámaras y modelo EN VIVO
+// ------------------------------------------------------------
+
+const labels = {
+
+  "CONNECTED":
+    '<span class="ok">EN LÍNEA</span>',
+
+  "CONNECTING":
+    '<span class="warn">CONECTANDO...</span>',
+
+  "DISCONNECTED":
+    '<span class="warn">SIN SEÑAL</span>',
+
+};
+
+
+const modelLabels = {
+
+  "READY":
+    '<span class="ok">ENTRENADO</span>',
+
+  "NOT_TRAINED":
+    '<span class="warn">SIN ENTRENAR</span>',
+
+  "ERROR":
+    '<span style="color:var(--danger);">ERROR EN EL MODELO</span>',
+
+};
+
+
+async function refreshStatus() {
+
+  try {
+
+    const res = await fetch("{{ url_for('api_status') }}");
+
+    const data = await res.json();
+
+    document.getElementById("status-usb").innerHTML =
+      labels[data.cameras.usb.status] ||
+      data.cameras.usb.status;
+
+    document.getElementById("status-pi").innerHTML =
+      labels[data.cameras.pi.status] ||
+      data.cameras.pi.status;
+
+    document.getElementById("status-wifi").innerHTML =
+      labels[data.cameras.wifi.status] ||
+      data.cameras.wifi.status;
+
+    document.getElementById("status-model").innerHTML =
+      modelLabels[data.model.status] ||
+      data.model.status;
+
+  } catch (e) {
+
+    // Si ocurre un error momentáneo,
+    // se volverá a intentar en la siguiente actualización.
+
   }
-    refreshStatus();
-  setInterval(refreshStatus, 2000);
 
-  // isAdmin es una sola variable JS (no un bloque {% if %}/{% endif %}
-  // envolviendo JavaScript) -- así el editor no confunde las etiquetas
-  // de Jinja con sintaxis de JS rota, y el "if" de verdad lo hace JS.
-  const isAdmin = {{ "true" if role == "admin" else "false" }};
+}
 
-  if (isAdmin) {
-    // ---- Panel "PERSONA DETECTADA" (solo admin) ----
-    let currentPersonId = null;
 
-    const refreshDetected = async () => {
-      try {
-        const res = await fetch("{{ url_for('api_current_person') }}");
-        const data = await res.json();
-        const panel = document.getElementById("detected-panel");
-        if (data.person) {
-          currentPersonId = data.person.id;
-          document.getElementById("detected-name").textContent = data.person.name;
-          document.getElementById("detected-role").textContent =
-            `${data.person.role} — cámara ${data.person.camera}`;
-          panel.style.display = "block";
-        } else {
-          currentPersonId = null;
-          panel.style.display = "none";
-        }
-      } catch (e) { /* ignora fallos puntuales */ }
-    };
-    refreshDetected();
-    setInterval(refreshDetected, 2000);
+refreshStatus();
 
-    document.getElementById("detected-btn").addEventListener("click", async () => {
-      if (currentPersonId === null) return;
-      const res = await fetch(`/api/person/${currentPersonId}`);
-      if (!res.ok) return;
+setInterval(refreshStatus, 2000);
+
+
+// ------------------------------------------------------------
+// Control de acceso
+// ------------------------------------------------------------
+
+const isAdmin = {{ "true" if role == "admin" else "false" }};
+
+
+if (isAdmin) {
+
+  // ----------------------------------------------------------
+  // Panel "PERSONA DETECTADA"
+  // ----------------------------------------------------------
+
+  let currentPersonId = null;
+
+
+  const refreshDetected = async () => {
+
+    try {
+
+      const res =
+        await fetch("{{ url_for('api_current_person') }}");
+
+      const data = await res.json();
+
+      const panel =
+        document.getElementById("detected-panel");
+
+
+      if (data.person) {
+
+        currentPersonId = data.person.id;
+
+        document.getElementById("detected-name").textContent =
+          data.person.name;
+
+        document.getElementById("detected-role").textContent =
+          `${data.person.role} — cámara ${data.person.camera}`;
+
+        panel.style.display = "block";
+
+      } else {
+
+        currentPersonId = null;
+
+        panel.style.display = "none";
+
+      }
+
+    } catch (e) {
+
+      // Ignorar errores puntuales de comunicación.
+
+    }
+
+  };
+
+
+  refreshDetected();
+
+  setInterval(refreshDetected, 2000);
+
+
+  // ----------------------------------------------------------
+  // Mostrar información completa
+  // ----------------------------------------------------------
+
+  document
+    .getElementById("detected-btn")
+    .addEventListener("click", async () => {
+
+      if (currentPersonId === null) {
+        return;
+      }
+
+
+      const res =
+        await fetch(`/api/person/${currentPersonId}`);
+
+
+      if (!res.ok) {
+        return;
+      }
+
+
       const p = await res.json();
 
-      const campo = (etiqueta, valor) => valor ? `<p><strong>${etiqueta}:</strong> ${valor}</p>` : "";
+
+      const campo = (etiqueta, valor) => {
+
+        return valor
+          ? `<p><strong>${etiqueta}:</strong> ${valor}</p>`
+          : "";
+
+      };
+
+
       document.getElementById("modal-fields").innerHTML =
-        campo("Nombre", p.name) + campo("Rol", p.role) + campo("Cédula", p.id_document) +
-        campo("Edad", p.age) + campo("Teléfono", p.phone) + campo("Correo", p.email) +
-        campo("Trabajo", p.workplace) + campo("Puesto", p.position) +
-        campo("Institución", p.institution) + campo("Carrera", p.program) +
+
+        campo("Nombre", p.name) +
+
+        campo("Rol", p.role) +
+
+        campo("Cédula", p.id_document) +
+
+        campo("Edad", p.age) +
+
+        campo("Teléfono", p.phone) +
+
+        campo("Correo", p.email) +
+
+        campo("Trabajo", p.workplace) +
+
+        campo("Puesto", p.position) +
+
+        campo("Institución", p.institution) +
+
+        campo("Carrera", p.program) +
+
         campo("Notas", p.notes);
 
-      const img = document.getElementById("modal-photo");
-      if (p.photo_url) { img.src = p.photo_url; img.style.display = "block"; }
-      else { img.style.display = "none"; }
 
-      document.getElementById("person-modal").style.display = "flex";
+      const img =
+        document.getElementById("modal-photo");
+
+
+      if (p.photo_url) {
+
+        img.src = p.photo_url;
+
+        img.style.display = "block";
+
+      } else {
+
+        img.style.display = "none";
+
+      }
+
+
+      document.getElementById("person-modal").style.display =
+        "flex";
+
     });
 
-    document.getElementById("modal-close").addEventListener("click", () => {
-      document.getElementById("person-modal").style.display = "none";
+
+  // ----------------------------------------------------------
+  // Cerrar modal
+  // ----------------------------------------------------------
+
+  document
+    .getElementById("modal-close")
+    .addEventListener("click", () => {
+
+      document.getElementById("person-modal").style.display =
+        "none";
+
     });
-  }
+
+}
+
 </script>
+
 {% endblock %}
